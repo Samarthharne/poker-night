@@ -130,17 +130,17 @@ async function openBlobStore() {
   }
 }
 
-async function readBlobSnapshot(): Promise<Room[] | null> {
+async function readBlobSnapshot(): Promise<{ rooms: Room[] | null; failed: boolean }> {
   try {
     const store = await openBlobStore();
-    if (!store) return null;
+    if (!store) return { rooms: null, failed: false };
     const parsed = await withTimeout(store.get("state", { type: "json" }));
-    if (!parsed || typeof parsed !== "object") return null;
+    if (!parsed || typeof parsed !== "object") return { rooms: [], failed: false };
     const rooms = (parsed as Snapshot).rooms;
-    return Array.isArray(rooms) ? rooms : null;
+    return { rooms: Array.isArray(rooms) ? rooms : [], failed: false };
   } catch (error) {
     console.error("[poker-night] failed to read rooms", error);
-    return null;
+    return { rooms: null, failed: true };
   }
 }
 
@@ -207,18 +207,20 @@ function gameRank(room: Room) {
   return seq;
 }
 
+function isIdle(room: Room) {
+  return !room.game || room.status === "lobby" || room.status === "closed";
+}
+
 function pickLive(left: Room, right: Room) {
   const leftGen = left.generation ?? 0;
   const rightGen = right.generation ?? 0;
   if (leftGen !== rightGen) return leftGen > rightGen ? left : right;
   const newer = left.updatedAt >= right.updatedAt ? left : right;
   const older = newer === left ? right : left;
-  if ((newer.status === "lobby" || newer.status === "closed") && !newer.game) {
-    return newer;
-  }
-  if ((older.status === "lobby" || older.status === "closed") && !older.game && newer.game) {
-    return older;
-  }
+  const newerIdle = isIdle(newer);
+  const olderIdle = isIdle(older);
+  if (newerIdle !== olderIdle) return newerIdle ? newer : older;
+  if (newerIdle && olderIdle) return newer;
   const leftRank = gameRank(left);
   const rightRank = gameRank(right);
   if (leftRank !== rightRank) return leftRank > rightRank ? left : right;
@@ -227,30 +229,76 @@ function pickLive(left: Room, right: Room) {
 
 function statusFromGame(room: Room): Room["status"] {
   if (room.closedAt) return "closed";
-  if (room.game?.paused) return "paused";
-  if (room.status === "paused" && room.game) return "playing";
-  return room.status;
+  if (!room.game) return "lobby";
+  if (room.game.paused) return "paused";
+  if (room.game.phase === "complete") return "complete";
+  return "playing";
+}
+
+function liveEqual(left: Room[], right: Room[]) {
+  if (left.length !== right.length) return false;
+  const map = new Map(right.map((room) => [room.id, room]));
+  for (const room of left) {
+    const other = map.get(room.id);
+    if (!other) return false;
+    if ((room.generation ?? 0) !== (other.generation ?? 0)) return false;
+    if (room.status !== other.status) return false;
+    if (Boolean(room.game) !== Boolean(other.game)) return false;
+    if ((room.game?.handNumber ?? 0) !== (other.game?.handNumber ?? 0)) return false;
+    if (room.game?.phase !== other.game?.phase) return false;
+    if ((room.game?.communityCards.length ?? 0) !== (other.game?.communityCards.length ?? 0)) return false;
+    if ((room.game?.actionSeq ?? 0) !== (other.game?.actionSeq ?? 0)) return false;
+  }
+  return true;
 }
 
 export function mergeRoomPair(left: Room, right: Room): Room {
-  const newer = left.updatedAt >= right.updatedAt ? left : right;
-  const older = newer === left ? right : left;
   const live = pickLive(left, right);
   const other = live === left ? right : left;
-  const status = statusFromGame({ ...live, game: live.game });
+  const generation = Math.max(left.generation ?? 0, right.generation ?? 0);
+  const idle = !live.game || live.status === "lobby" || live.status === "closed";
+  const players = mergePlayers(live.players, idle ? live.players : other.players).map((player) =>
+    idle
+      ? {
+          ...player,
+          folded: false,
+          allIn: false,
+          currentBet: 0,
+          totalBetThisHand: 0,
+          contributedThisHand: 0,
+          holeCards: undefined,
+          hasActedThisRound: false,
+        }
+      : player,
+  );
+  if (idle) {
+    return {
+      ...live,
+      generation,
+      updatedAt: Math.max(left.updatedAt, right.updatedAt),
+      status: live.closedAt ? "closed" : "lobby",
+      locked: false,
+      game: null,
+      players,
+      rtcSignals: [...(other.rtcSignals ?? []), ...(live.rtcSignals ?? [])].slice(-160),
+      messages: live.messages.length >= other.messages.length ? live.messages : other.messages,
+    };
+  }
+  const status = statusFromGame(live);
   return {
-    ...newer,
-    generation: Math.max(left.generation ?? 0, right.generation ?? 0),
+    ...live,
+    generation,
+    updatedAt: Math.max(left.updatedAt, right.updatedAt),
     status,
-    locked: status === "playing" || status === "paused" ? live.locked : newer.locked,
+    locked: status === "playing" || status === "paused" ? live.locked : live.locked,
     game: live.game,
-    turnSeconds: newer.turnSeconds || older.turnSeconds,
-    players: mergePlayers(live.players, other.players),
-    inviteHash: newer.inviteHash || older.inviteHash,
-    inviteSealed: newer.inviteSealed || older.inviteSealed,
-    inviteExpiresAt: newer.inviteExpiresAt ?? older.inviteExpiresAt,
-    rtcSignals: [...(older.rtcSignals ?? []), ...(newer.rtcSignals ?? [])].slice(-160),
-    messages: newer.messages.length >= older.messages.length ? newer.messages : older.messages,
+    turnSeconds: live.turnSeconds || other.turnSeconds,
+    players,
+    inviteHash: live.inviteHash || other.inviteHash,
+    inviteSealed: live.inviteSealed || other.inviteSealed,
+    inviteExpiresAt: live.inviteExpiresAt ?? other.inviteExpiresAt,
+    rtcSignals: [...(other.rtcSignals ?? []), ...(live.rtcSignals ?? [])].slice(-160),
+    messages: live.messages.length >= other.messages.length ? live.messages : other.messages,
   };
 }
 
@@ -265,32 +313,60 @@ export function mergeRooms(remote: Room[], local: Room[]) {
 }
 
 export async function loadDurableRooms(): Promise<Room[] | null> {
-  return (await readBlobSnapshot()) ?? readFileSnapshot();
+  const blob = await readBlobSnapshot();
+  if (blob.failed) return serverlessRuntime() ? null : readFileSnapshot();
+  if (blob.rooms) return blob.rooms;
+  return serverlessRuntime() ? [] : readFileSnapshot();
 }
 
 export async function saveDurableRooms(local: Room[]) {
-  const remote = (await readBlobSnapshot()) ?? readFileSnapshot() ?? [];
-  const merged = mergeRooms(remote, local);
-  try {
-    if (await writeBlobSnapshot(merged)) {
-      try {
-        writeFileSnapshot(merged);
-      } catch {
-        /* optional local copy */
+  let incoming = local;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const blob = await readBlobSnapshot();
+    if (blob.failed) {
+      console.error("[poker-night] skip persist, blob read failed");
+      if (!serverlessRuntime()) {
+        try {
+          writeFileSnapshot(incoming);
+          return true;
+        } catch {
+          queueFileWrite(incoming);
+        }
       }
-      return true;
+      return false;
     }
-  } catch (error) {
-    console.error("[poker-night] failed to write Netlify Blobs", error);
+    const remote = blob.rooms ?? (serverlessRuntime() ? [] : readFileSnapshot() ?? []);
+    const merged = mergeRooms(remote, incoming);
+    try {
+      if (await writeBlobSnapshot(merged)) {
+        const verify = await readBlobSnapshot();
+        if (!verify.failed && verify.rooms) {
+          const confirmed = mergeRooms(verify.rooms, merged);
+          if (!liveEqual(confirmed, merged)) {
+            incoming = confirmed;
+            continue;
+          }
+        }
+        try {
+          writeFileSnapshot(merged);
+        } catch {
+          /* optional local copy */
+        }
+        return true;
+      }
+    } catch (error) {
+      console.error("[poker-night] failed to write Netlify Blobs", error);
+    }
+    try {
+      writeFileSnapshot(merged);
+      return true;
+    } catch (error) {
+      console.error("[poker-night] failed to write local room snapshot", error);
+      if (!serverlessRuntime()) queueFileWrite(merged);
+      return !serverlessRuntime();
+    }
   }
-  try {
-    writeFileSnapshot(merged);
-    return true;
-  } catch (error) {
-    console.error("[poker-night] failed to write local room snapshot", error);
-    if (!serverlessRuntime()) queueFileWrite(merged);
-    return !serverlessRuntime();
-  }
+  return false;
 }
 
 export async function persistDurableRooms(local: Room[]) {

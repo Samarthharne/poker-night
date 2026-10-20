@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -36,6 +36,7 @@ export default function AdminDashboard() {
   const [link, setLink] = useState("");
   const [creating, setCreating] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const lobbyHoldRef = useRef<Record<string, number>>({});
 
   async function load() {
     const res = await fetch("/api/admin/rooms", { cache: "no-store" });
@@ -50,7 +51,16 @@ export default function AdminDashboard() {
       rooms: Summary[];
     };
     setStats({ total: data.total, active: data.active, connected: data.connected });
-    setRooms(data.rooms);
+    const now = Date.now();
+    setRooms(
+      data.rooms.map((room) => {
+        const until = lobbyHoldRef.current[room.id] ?? 0;
+        if (now < until && room.status !== "lobby") {
+          return { ...room, status: "lobby", phase: "lobby", paused: false };
+        }
+        return room;
+      }),
+    );
   }
 
   useEffect(() => {
@@ -128,7 +138,17 @@ export default function AdminDashboard() {
         toast.error(data.error || "Could not update the table");
         return;
       }
-      toast.success(command === "start" ? "Game started" : command.replace("-", " "));
+      if (command === "end" || command === "lobby") {
+        lobbyHoldRef.current[roomId] = Date.now() + 12_000;
+        setRooms((current) =>
+          current.map((room) =>
+            room.id === roomId ? { ...room, status: "lobby", phase: "lobby", paused: false } : room,
+          ),
+        );
+        toast.success("Players returned to the waiting room");
+      } else {
+        toast.success(command === "start" ? "Game started" : command.replace("-", " "));
+      }
       await load();
     } catch {
       toast.error("Could not reach the server.");

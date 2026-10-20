@@ -26,6 +26,15 @@ describe("shuffle", () => {
     expect(deck[0]).toEqual(createDeck()[0]);
   });
 
+  it("deals the same order for the same hand seed", () => {
+    const seed = "room-1:3:12";
+    const first = shuffle(createDeck(), seed).map(cardKey).join(",");
+    const second = shuffle(createDeck(), seed).map(cardKey).join(",");
+    const other = shuffle(createDeck(), "room-1:4:12").map(cardKey).join(",");
+    expect(second).toBe(first);
+    expect(other).not.toBe(first);
+  });
+
   it("uses crypto.randomInt, which is the secure source used by production shuffles", () => {
     expect(randomInt(2)).toBeGreaterThanOrEqual(0);
     const samples = new Set(

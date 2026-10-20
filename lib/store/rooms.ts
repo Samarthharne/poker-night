@@ -102,19 +102,26 @@ function replaceRooms(rooms: Room[]) {
 export async function ensureStore(req?: Request) {
   await seedBlobsFromRequest(req);
   const onNetlify = process.env.NETLIFY === "true" || Boolean(process.env.NETLIFY_BLOBS_CONTEXT);
+  let durable = true;
   if (!globalStore.__pokerNightHydrated || onNetlify) {
     const rooms = await loadDurableRooms();
-    if (rooms) replaceRooms(mergeRooms(rooms, listRooms()));
-    globalStore.__pokerNightHydrated = true;
+    if (rooms) {
+      replaceRooms(mergeRooms(rooms, listRooms()));
+      globalStore.__pokerNightHydrated = true;
+    } else {
+      durable = false;
+      if (!globalStore.__pokerNightHydrated) return;
+    }
   }
   let changed = false;
   for (const room of listRooms()) {
+    if (!room.game || room.status === "lobby" || room.status === "closed") continue;
     if (advanceRoom(room)) {
       room.updatedAt = Date.now();
       changed = true;
     }
   }
-  if (changed) await saveDurableRooms(listRooms());
+  if (changed && durable) await saveDurableRooms(listRooms());
 }
 
 function serverlessRuntime() {

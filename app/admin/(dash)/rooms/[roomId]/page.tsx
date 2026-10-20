@@ -42,11 +42,35 @@ export default function AdminRoomPage() {
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState<string | null>(null);
   const holdRef = useRef<{ paused: boolean; seq: number; until: number } | null>(null);
+  const lobbyHoldRef = useRef<number>(0);
 
   async function load() {
     const res = await fetch(`/api/admin/rooms/${roomId}`, { cache: "no-store" });
     if (!res.ok) return;
     const data = (await res.json()) as { room: RoomDetail };
+    if (Date.now() < lobbyHoldRef.current && data.room.status !== "lobby") {
+      setRoom((current) =>
+        current
+          ? {
+              ...data.room,
+              ...current,
+              status: "lobby",
+              phase: "lobby",
+              paused: false,
+              handNumber: 0,
+              lastAction: "Players returned to the waiting room",
+            }
+          : {
+              ...data.room,
+              status: "lobby",
+              phase: "lobby",
+              paused: false,
+              handNumber: 0,
+              lastAction: "Players returned to the waiting room",
+            },
+      );
+      return;
+    }
     const hold = holdRef.current;
     if (hold && Date.now() < hold.until && (data.room.actionSeq ?? 0) <= hold.seq && data.room.paused !== hold.paused) {
       setRoom({
@@ -96,6 +120,7 @@ export default function AdminRoomPage() {
         const paused =
           commandName === "pause" ? true : commandName === "resume" ? false : Boolean(data.snapshot?.game?.paused);
         if (commandName === "end" || commandName === "lobby") {
+          lobbyHoldRef.current = Date.now() + 12_000;
           setRoom((current) =>
             current
               ? {

@@ -97,7 +97,10 @@ export function beginHand(room: Room) {
     seated.find((p) => p.seatNumber !== sbSeat)?.seatNumber ??
     sbSeat;
 
-  const deck = shuffledDeck(createDeck(), `${room.id}:${game.handNumber}`);
+  const deck = shuffledDeck(
+    createDeck(),
+    `${room.id}:${room.generation ?? 0}:${game.handNumber}`,
+  );
   const live = room.players.filter(
     (p) => p.chipBalance > 0 && seated.some((s) => s.id === p.id),
   );
