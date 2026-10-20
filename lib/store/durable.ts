@@ -191,15 +191,30 @@ function gameRank(room: Room) {
   return seq;
 }
 
+function pickLive(left: Room, right: Room) {
+  const leftRank = gameRank(left);
+  const rightRank = gameRank(right);
+  if (leftRank !== rightRank) return leftRank > rightRank ? left : right;
+  return left.updatedAt >= right.updatedAt ? left : right;
+}
+
+function statusFromGame(room: Room): Room["status"] {
+  if (room.closedAt) return "closed";
+  if (room.game?.paused) return "paused";
+  if (room.status === "paused" && room.game) return "playing";
+  return room.status;
+}
+
 export function mergeRoomPair(left: Room, right: Room): Room {
   const newer = left.updatedAt >= right.updatedAt ? left : right;
   const older = newer === left ? right : left;
-  const live = gameRank(left) >= gameRank(right) ? left : right;
+  const live = pickLive(left, right);
   const other = live === left ? right : left;
+  const status = statusFromGame({ ...live, game: live.game });
   return {
     ...newer,
-    status: live.status,
-    locked: live.status === "playing" || live.status === "paused" ? live.locked : newer.locked,
+    status,
+    locked: status === "playing" || status === "paused" ? live.locked : newer.locked,
     game: live.game,
     turnSeconds: newer.turnSeconds || older.turnSeconds,
     players: mergePlayers(live.players, other.players),

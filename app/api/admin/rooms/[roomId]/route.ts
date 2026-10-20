@@ -17,7 +17,7 @@ export async function GET(
       id: room.id,
       name: room.name,
       roomCode: room.roomCode,
-      status: room.closedAt ? "closed" : room.status,
+      status: room.closedAt ? "closed" : room.game?.paused ? "paused" : room.status === "paused" && room.game ? "playing" : room.status,
       locked: room.locked,
       maxPlayers: room.maxPlayers,
       startingChips: room.startingChips,
@@ -28,9 +28,10 @@ export async function GET(
       inviteExpiresAt: room.inviteExpiresAt,
       invitationActive: Boolean(room.inviteHash) && !room.closedAt,
       phase: room.game?.phase ?? "lobby",
-      paused: Boolean(room.game?.paused || room.status === "paused"),
+      paused: Boolean(room.game?.paused),
       handNumber: room.game?.handNumber ?? 0,
       lastAction: room.game?.lastAction ?? "",
+      actionSeq: room.game?.actionSeq ?? 0,
       players: room.players
         .filter((p) => !p.removed)
         .map((p) => ({

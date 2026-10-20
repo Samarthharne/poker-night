@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { toast } from "sonner";
@@ -28,6 +28,7 @@ type RoomDetail = {
   smallBlind: number;
   bigBlind: number;
   invitationActive: boolean;
+  actionSeq?: number;
   players: Player[];
 };
 
@@ -40,11 +41,22 @@ export default function AdminRoomPage() {
   const [turnSeconds, setTurnSeconds] = useState(30);
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState<string | null>(null);
+  const holdRef = useRef<{ paused: boolean; seq: number; until: number } | null>(null);
 
   async function load() {
     const res = await fetch(`/api/admin/rooms/${roomId}`, { cache: "no-store" });
     if (!res.ok) return;
     const data = (await res.json()) as { room: RoomDetail };
+    const hold = holdRef.current;
+    if (hold && Date.now() < hold.until && (data.room.actionSeq ?? 0) <= hold.seq && data.room.paused !== hold.paused) {
+      setRoom({
+        ...data.room,
+        paused: hold.paused,
+        status: hold.paused ? "paused" : "playing",
+        lastAction: hold.paused ? "Game paused" : "Game resumed",
+      });
+      return;
+    }
     setRoom(data.room);
   }
 
@@ -66,7 +78,10 @@ export default function AdminRoomPage() {
       const data = (await res.json()) as {
         error?: string;
         invitationUrl?: string;
-        snapshot?: { status?: string; game?: { phase?: string; handNumber?: number; paused?: boolean } | null };
+        snapshot?: {
+          status?: string;
+          game?: { phase?: string; handNumber?: number; paused?: boolean; actionSeq?: number; lastAction?: string } | null;
+        };
       };
       if (!res.ok) {
         const text = data.error || "Could not update the room";
@@ -78,6 +93,28 @@ export default function AdminRoomPage() {
         setLink(data.invitationUrl);
         toast.success("Invitation link ready");
       } else {
+        const paused =
+          commandName === "pause" ? true : commandName === "resume" ? false : Boolean(data.snapshot?.game?.paused);
+        if (commandName === "pause" || commandName === "resume") {
+          holdRef.current = {
+            paused,
+            seq: (data.snapshot?.game?.actionSeq ?? 0) + 1,
+            until: Date.now() + 8000,
+          };
+          setRoom((current) =>
+            current
+              ? {
+                  ...current,
+                  paused,
+                  status: paused ? "paused" : "playing",
+                  lastAction: data.snapshot?.game?.lastAction ?? (paused ? "Game paused" : "Game resumed"),
+                  phase: data.snapshot?.game?.phase ?? current.phase,
+                  handNumber: data.snapshot?.game?.handNumber ?? current.handNumber,
+                  actionSeq: data.snapshot?.game?.actionSeq ?? current.actionSeq,
+                }
+              : current,
+          );
+        }
         const phase = data.snapshot?.game?.phase ?? data.snapshot?.status ?? commandName;
         const text = `${commandName} · ${phase}${data.snapshot?.game?.handNumber ? `, hand ${data.snapshot.game.handNumber}` : ""}`;
         setMessage(text);
@@ -108,8 +145,10 @@ export default function AdminRoomPage() {
     return <main className="px-5 py-10 text-white/60">Loading room...</main>;
   }
 
-  const lobby = room.status === "lobby" || room.phase === "lobby" || !room.phase || room.phase === "waiting";
-  const playing = room.status === "playing" || room.status === "paused" || Boolean(room.phase && room.phase !== "lobby" && room.phase !== "waiting" && room.phase !== "complete");
+  const paused = Boolean(room.paused);
+  const inHand = ["preflop", "flop", "turn", "river", "showdown"].includes(room.phase) || room.handNumber > 0;
+  const lobby = room.status === "lobby" && !inHand && room.phase !== "preflop";
+  const playing = inHand || room.status === "playing" || paused;
   const over = room.status === "complete" || room.phase === "complete";
   const busy = Boolean(pending);
 
@@ -121,7 +160,7 @@ export default function AdminRoomPage() {
       <h1 className="font-display mt-2 text-4xl">{room.name}</h1>
       <p className="mt-1 text-sm uppercase tracking-[0.2em] text-gold">Room {room.roomCode}</p>
       <p className="mt-2 text-sm text-white/55">
-        {room.paused ? "paused" : room.status} · {room.phase}
+        {paused ? "paused" : room.status} · {room.phase}
         {room.handNumber ? ` · hand ${room.handNumber}` : ""} · blinds {room.smallBlind}/{room.bigBlind}
         {room.locked ? " · locked" : ""}
       </p>
@@ -146,10 +185,10 @@ export default function AdminRoomPage() {
           <Button disabled={busy || !lobby || room.players.length < 2} onClick={() => command("start", { turnSeconds })}>
             {pending === "start" ? "Starting..." : "Start"}
           </Button>
-          <Button variant="outline" disabled={busy || !playing || room.paused} onClick={() => command("pause")}>
+          <Button variant="outline" disabled={busy || !playing || paused} onClick={() => command("pause")}>
             {pending === "pause" ? "Pausing..." : "Pause"}
           </Button>
-          <Button variant="outline" disabled={busy || !playing || !room.paused} onClick={() => command("resume")}>
+          <Button variant="outline" disabled={busy || !playing || !paused} onClick={() => command("resume")}>
             {pending === "resume" ? "Resuming..." : "Resume"}
           </Button>
           <Button variant="outline" disabled={busy || room.players.length < 2} onClick={() => command("restart")}>
