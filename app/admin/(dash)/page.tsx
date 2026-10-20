@@ -59,25 +59,32 @@ export default function AdminDashboard() {
 
   async function create(e: FormEvent) {
     e.preventDefault();
-    const res = await fetch("/api/admin/rooms", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        name,
-        startingChips: chips,
-        smallBlind: blind,
-        maxPlayers,
-        expiresInHours: hours,
-      }),
-    });
-    const data = (await res.json()) as { error?: string; invitationUrl?: string };
-    if (!res.ok) {
-      toast.error(data.error || "Could not create the room");
-      return;
+    try {
+      const res = await fetch("/api/admin/rooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name,
+          startingChips: chips,
+          smallBlind: blind,
+          maxPlayers,
+          expiresInHours: hours,
+        }),
+      });
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: unknown;
+        invitationUrl?: string;
+      };
+      if (!res.ok) {
+        toast.error(typeof data.error === "string" ? data.error : "Could not create the room");
+        return;
+      }
+      setLink(data.invitationUrl ?? "");
+      toast.success("Private room created");
+      await load();
+    } catch {
+      toast.error("Could not create the room");
     }
-    setLink(data.invitationUrl ?? "");
-    toast.success("Private room created");
-    await load();
   }
 
   async function runRoom(roomId: string, commandName: "start" | "restart") {

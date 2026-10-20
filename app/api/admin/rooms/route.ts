@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin/auth";
 import { issueInvitation } from "@/lib/admin/invitations";
-import { createEmptyRoom, ensureStore, listRooms, saveRoom } from "@/lib/store/rooms";
+import { createEmptyRoom, ensureStore, listRooms, persistRooms } from "@/lib/store/rooms";
+
+export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
 
 export async function GET(req: Request) {
   const admin = requireAdmin(req);
@@ -23,48 +26,45 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const admin = requireAdmin(req);
   if (admin instanceof Response) return admin;
-  await ensureStore();
-  const body = (await req.json().catch(() => ({}))) as {
-    name?: string;
-    maxPlayers?: number;
-    startingChips?: number;
-    smallBlind?: number;
-    expiresInHours?: number;
-  };
-  const name = (body.name ?? "").trim();
-  const maxPlayers = Number(body.maxPlayers);
-  const startingChips = Number(body.startingChips);
-  const smallBlind = Number(body.smallBlind);
-  if (name.length < 2) {
-    return NextResponse.json({ error: "Enter a room name." }, { status: 400 });
-  }
-  if (![2, 4, 6, 8, 9].includes(maxPlayers)) {
-    return NextResponse.json({ error: "Invalid table size." }, { status: 400 });
-  }
-  if (!Number.isFinite(startingChips) || startingChips < 100 || startingChips > 1_000_000) {
-    return NextResponse.json({ error: "Invalid starting chips." }, { status: 400 });
-  }
-  if (!Number.isFinite(smallBlind) || smallBlind < 1 || smallBlind * 2 >= startingChips) {
-    return NextResponse.json({ error: "Invalid blinds." }, { status: 400 });
-  }
-  const hours = Number(body.expiresInHours);
-  const expiresAt =
-    Number.isFinite(hours) && hours > 0 ? Date.now() + hours * 60 * 60 * 1000 : null;
-  const room = createEmptyRoom({ name, maxPlayers, startingChips, smallBlind });
-  room.expiresAt = expiresAt;
-  room.hostId = "admin";
-  saveRoom(room);
-  let invitationUrl = "";
   try {
+    await ensureStore();
+    const body = (await req.json().catch(() => ({}))) as {
+      name?: string;
+      maxPlayers?: number;
+      startingChips?: number;
+      smallBlind?: number;
+      expiresInHours?: number;
+    };
+    const name = (body.name ?? "").trim();
+    const maxPlayers = Number(body.maxPlayers);
+    const startingChips = Number(body.startingChips);
+    const smallBlind = Number(body.smallBlind);
+    if (name.length < 2) {
+      return NextResponse.json({ error: "Enter a room name." }, { status: 400 });
+    }
+    if (![2, 4, 6, 8, 9].includes(maxPlayers)) {
+      return NextResponse.json({ error: "Invalid table size." }, { status: 400 });
+    }
+    if (!Number.isFinite(startingChips) || startingChips < 100 || startingChips > 1_000_000) {
+      return NextResponse.json({ error: "Invalid starting chips." }, { status: 400 });
+    }
+    if (!Number.isFinite(smallBlind) || smallBlind < 1 || smallBlind * 2 >= startingChips) {
+      return NextResponse.json({ error: "Invalid blinds." }, { status: 400 });
+    }
+    const hours = Number(body.expiresInHours);
+    const expiresAt =
+      Number.isFinite(hours) && hours > 0 ? Date.now() + hours * 60 * 60 * 1000 : null;
+    const room = createEmptyRoom({ name, maxPlayers, startingChips, smallBlind });
+    room.expiresAt = expiresAt;
+    room.hostId = "admin";
     const token = issueInvitation(room, expiresAt);
-    invitationUrl = `${new URL(req.url).origin}/room/${token}`;
+    await persistRooms();
+    const invitationUrl = `${new URL(req.url).origin}/room/${token}`;
+    return NextResponse.json({ room: summarize(room), invitationUrl });
   } catch (error) {
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Could not create an invitation." },
-      { status: 500 },
-    );
+    const message = error instanceof Error ? error.message : "Could not create the room";
+    return NextResponse.json({ error: message }, { status: 500 });
   }
-  return NextResponse.json({ room: summarize(room), invitationUrl });
 }
 
 function summarize(room: ReturnType<typeof listRooms>[number]) {

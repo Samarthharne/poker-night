@@ -91,7 +91,6 @@ export async function saveDurableRooms(local: Room[]) {
     const merged = mergeRooms(remote, local);
     const store = await blobs();
     await store.setJSON("state", { rooms: merged });
-    writeFileSnapshot(merged);
   });
   queue = job.catch(() => undefined);
   await job;

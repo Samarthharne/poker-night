@@ -110,18 +110,36 @@ export async function ensureStore() {
   if (changed) await saveDurableRooms(listRooms());
 }
 
+function serverlessRuntime() {
+  return Boolean(
+    process.env.NETLIFY ||
+      process.env.NETLIFY_BLOBS_CONTEXT ||
+      process.env.VERCEL ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME,
+  );
+}
+
 export function saveRoom(room: Room) {
   room.updatedAt = Date.now();
   indexRoom(room);
   ensureTimer(room.roomCode);
   emit(room);
-  const rooms = listRooms();
-  const job = saveDurableRooms(rooms);
+  const job = saveDurableRooms(listRooms()).catch((error) => {
+    console.error("[poker-night] failed to persist rooms", error);
+  });
+  if (serverlessRuntime()) {
+    void job;
+    return;
+  }
   try {
     after(() => job);
   } catch {
     void job;
   }
+}
+
+export async function persistRooms() {
+  await saveDurableRooms(listRooms());
 }
 
 export function subscribe(code: string, listener: Listener) {
@@ -214,6 +232,7 @@ export function advanceRoom(room: Room) {
 }
 
 function ensureTimer(code: string) {
+  if (serverlessRuntime()) return;
   const store = getStore();
   if (store.timers.has(code)) return;
   const timer = setInterval(() => {
