@@ -12,7 +12,7 @@ export async function loadRoomPlayer(
   req: Request,
   code: string,
 ): Promise<{ error: NextResponse } | { room: Room; player: Player; token: string }> {
-  await ensureStore();
+  await ensureStore(req);
   const room = getRoomByInviteToken(code) ?? getRoomByCode(code);
   if (!room) return { error: jsonError("This invitation is not valid.", 404) };
   const token = getTokenFromRequest(req);

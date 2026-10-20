@@ -8,7 +8,7 @@ export async function GET(
 ) {
   const admin = requireAdmin(req);
   if (admin instanceof Response) return admin;
-  await ensureStore();
+  await ensureStore(req);
   const { roomId } = await ctx.params;
   const room = getRoomById(roomId);
   if (!room) return NextResponse.json({ error: "Room not found." }, { status: 404 });

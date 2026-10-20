@@ -3,8 +3,8 @@ import { ensureStore, findPlayerByToken, getRoomByInviteToken } from "./store/ro
 import type { Room } from "@/types/room";
 import type { Player } from "@/types/player";
 
-export async function loadRoom(code: string) {
-  await ensureStore();
+export async function loadRoom(code: string, req?: Request) {
+  await ensureStore(req);
   const room = getRoomByInviteToken(code);
   if (!room) {
     throw Object.assign(new Error("This invitation is not valid."), { status: 404 });

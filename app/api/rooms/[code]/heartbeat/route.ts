@@ -8,7 +8,7 @@ export async function POST(
 ) {
   try {
     const { code } = await ctx.params;
-    const room = await loadRoom(code);
+    const room = await loadRoom(code, req);
     const player = requirePlayer(req, room);
     heartbeat(room, player);
     saveRoom(room);

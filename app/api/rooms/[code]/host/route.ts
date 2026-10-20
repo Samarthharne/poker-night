@@ -32,7 +32,7 @@ export async function POST(
   const admin = requireAdmin(req);
   if (admin instanceof Response) return admin;
   const { code } = await ctx.params;
-  await ensureStore();
+  await ensureStore(req);
   let room = getRoomById(code) ?? getRoomByCode(code) ?? getRoomByInviteToken(code);
   if (!room) return jsonError("Room not found.", 404);
   const token = null;

@@ -9,7 +9,7 @@ export async function GET(
   ctx: { params: Promise<{ code: string }> },
 ) {
   const { code } = await ctx.params;
-  await ensureStore();
+  await ensureStore(req);
   const room = getRoomByInviteToken(code);
   if (!room) {
     return new Response(JSON.stringify({ error: "This invitation is not valid." }), {

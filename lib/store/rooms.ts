@@ -12,7 +12,13 @@ import {
   playerAtSeat,
   SHOWDOWN_HOLD_MS,
 } from "@/lib/poker/game-engine";
-import { loadDurableRooms, mergeRooms, saveDurableRooms } from "@/lib/store/durable";
+import {
+  loadDurableRooms,
+  mergeRooms,
+  persistDurableRooms,
+  saveDurableRooms,
+  seedBlobsFromRequest,
+} from "@/lib/store/durable";
 
 const roomCode = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 6);
 const idNano = customAlphabet("abcdefghijklmnopqrstuvwxyz0123456789", 16);
@@ -93,7 +99,8 @@ function replaceRooms(rooms: Room[]) {
   for (const room of rooms) indexRoom(room);
 }
 
-export async function ensureStore() {
+export async function ensureStore(req?: Request) {
+  await seedBlobsFromRequest(req);
   const onNetlify = process.env.NETLIFY === "true" || Boolean(process.env.NETLIFY_BLOBS_CONTEXT);
   if (!globalStore.__pokerNightHydrated || onNetlify) {
     const rooms = await loadDurableRooms();
@@ -139,7 +146,7 @@ export function saveRoom(room: Room) {
 }
 
 export async function persistRooms() {
-  await saveDurableRooms(listRooms());
+  await persistDurableRooms(listRooms());
 }
 
 export function subscribe(code: string, listener: Listener) {

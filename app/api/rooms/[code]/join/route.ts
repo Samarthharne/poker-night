@@ -24,7 +24,7 @@ export async function POST(
     return NextResponse.json({ error: "Too many attempts. Try again shortly." }, { status: 429 });
   }
   const { code } = await ctx.params;
-  await ensureStore();
+  await ensureStore(req);
   const room = getRoomByInviteToken(code);
   if (!room) {
     return NextResponse.json({ error: "This invitation is not valid." }, { status: 404 });

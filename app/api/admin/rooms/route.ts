@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export async function GET(req: Request) {
   const admin = requireAdmin(req);
   if (admin instanceof Response) return admin;
-  await ensureStore();
+  await ensureStore(req);
   const rooms = listRooms();
   const connected = rooms.reduce(
     (sum, room) => sum + room.players.filter((p) => !p.removed && p.isConnected).length,
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   const admin = requireAdmin(req);
   if (admin instanceof Response) return admin;
   try {
-    await ensureStore();
+    await ensureStore(req);
     const body = (await req.json().catch(() => ({}))) as {
       name?: string;
       maxPlayers?: number;

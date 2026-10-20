@@ -34,6 +34,7 @@ export default function AdminDashboard() {
   const [maxPlayers, setMaxPlayers] = useState(6);
   const [hours, setHours] = useState(12);
   const [link, setLink] = useState("");
+  const [creating, setCreating] = useState(false);
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
 
@@ -59,6 +60,8 @@ export default function AdminDashboard() {
 
   async function create(e: FormEvent) {
     e.preventDefault();
+    if (creating) return;
+    setCreating(true);
     try {
       const res = await fetch("/api/admin/rooms", {
         method: "POST",
@@ -74,16 +77,38 @@ export default function AdminDashboard() {
       const data = (await res.json().catch(() => ({}))) as {
         error?: unknown;
         invitationUrl?: string;
+        room?: Summary;
       };
       if (!res.ok) {
         toast.error(typeof data.error === "string" ? data.error : "Could not create the room");
         return;
       }
+      const created = data.room;
       setLink(data.invitationUrl ?? "");
+      if (created) {
+        setRooms((current) => [created, ...current.filter((item) => item.id !== created.id)]);
+        setStats((current) => ({
+          total: Math.max(current.total, 1),
+          active: Math.max(current.active, 1),
+          connected: current.connected,
+        }));
+      }
       toast.success("Private room created");
-      await load();
+      await load().catch(() => undefined);
+      if (created) {
+        setRooms((current) =>
+          current.some((item) => item.id === created.id) ? current : [created, ...current],
+        );
+        setStats((stats) => ({
+          total: Math.max(stats.total, 1),
+          active: Math.max(stats.active, 1),
+          connected: stats.connected,
+        }));
+      }
     } catch {
       toast.error("Could not create the room");
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -172,7 +197,9 @@ export default function AdminDashboard() {
           </div>
         </div>
         <p className="text-xs text-white/45">Big blind is twice the small blind. Texas Hold&apos;em, virtual chips only.</p>
-        <Button type="submit">Create room</Button>
+        <Button type="submit" disabled={creating}>
+          {creating ? "Creating..." : "Create room"}
+        </Button>
         {link && (
           <div className="rounded-xl bg-black/30 p-3">
             <p className="text-xs text-white/50">Invitation link — share this with your friends.</p>

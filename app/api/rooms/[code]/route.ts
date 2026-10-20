@@ -15,7 +15,7 @@ export async function GET(
   }
   try {
     const { code } = await ctx.params;
-    const room = await loadRoom(code);
+    const room = await loadRoom(code, req);
     const player = findPlayerByToken(room, token);
     if (player && !player.removed) {
       heartbeat(room, player);

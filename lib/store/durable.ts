@@ -2,19 +2,92 @@ import { mkdirSync, readFileSync, writeFileSync } from "fs";
 import path from "path";
 import type { Room } from "@/types/room";
 
+const STORE_NAME = "poker-rooms";
 const filePath = path.join(process.cwd(), ".data", "rooms.json");
+const PERSIST_MS = 4_000;
 
 type Snapshot = { rooms: Room[] };
 
 let queue: Promise<void> = Promise.resolve();
+let pendingRooms: Room[] | null = null;
+let writeTimer: ReturnType<typeof setTimeout> | null = null;
 
-function blobEnabled() {
-  return process.env.NETLIFY === "true" || Boolean(process.env.NETLIFY_BLOBS_CONTEXT);
+function serverlessRuntime() {
+  return Boolean(
+    process.env.NETLIFY ||
+      process.env.NETLIFY_BLOBS_CONTEXT ||
+      process.env.VERCEL ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME,
+  );
+}
+
+function snapshotPath() {
+  return serverlessRuntime() ? path.join("/tmp", "poker-rooms.json") : filePath;
+}
+
+function withTimeout<T>(job: Promise<T>, ms = PERSIST_MS): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Room save timed out.")), ms);
+    job.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
+}
+
+export async function seedBlobsFromRequest(req?: Request) {
+  try {
+    const { setEnvironmentContext } = await import("@netlify/blobs");
+    const header =
+      req?.headers.get("x-nf-blobs") ??
+      req?.headers.get("x-netlify-blobs") ??
+      req?.headers.get("x-nf-blob-context");
+    const raw = header || process.env.NETLIFY_BLOBS_CONTEXT || "";
+    if (!raw && !process.env.NETLIFY_SITE_ID) return;
+    let parsed: {
+      apiURL?: string;
+      deployID?: string;
+      edgeURL?: string;
+      siteID?: string;
+      token?: string;
+      uncachedEdgeURL?: string;
+    } | null = null;
+    if (raw) {
+      try {
+        parsed = JSON.parse(raw);
+      } catch {
+        try {
+          parsed = JSON.parse(Buffer.from(raw, "base64").toString("utf8"));
+        } catch {
+          parsed = null;
+        }
+      }
+    }
+    const siteID = parsed?.siteID || process.env.NETLIFY_SITE_ID || process.env.SITE_ID || "";
+    const token = parsed?.token || process.env.NETLIFY_BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN || "";
+    if (!siteID || !token) return;
+    setEnvironmentContext({
+      apiURL: parsed?.apiURL,
+      deployID: parsed?.deployID || process.env.DEPLOY_ID || "",
+      edgeURL: parsed?.edgeURL,
+      siteID,
+      token,
+      uncachedEdgeURL: parsed?.uncachedEdgeURL,
+    });
+  } catch {
+    // Blobs stay on the automatic Netlify runtime context.
+  }
 }
 
 function readFileSnapshot(): Room[] | null {
   try {
-    const raw = readFileSync(filePath, "utf8");
+    const raw = readFileSync(snapshotPath(), "utf8");
     const parsed = JSON.parse(raw) as Snapshot;
     return Array.isArray(parsed.rooms) ? parsed.rooms : null;
   } catch {
@@ -23,25 +96,59 @@ function readFileSnapshot(): Room[] | null {
 }
 
 function writeFileSnapshot(rooms: Room[]) {
-  mkdirSync(path.dirname(filePath), { recursive: true });
-  writeFileSync(filePath, JSON.stringify({ rooms }));
+  const target = snapshotPath();
+  mkdirSync(path.dirname(target), { recursive: true });
+  writeFileSync(target, JSON.stringify({ rooms }));
 }
 
-async function blobs() {
-  const { getStore } = await import("@netlify/blobs");
-  return getStore("poker-rooms");
+function queueFileWrite(rooms: Room[]) {
+  pendingRooms = rooms;
+  if (writeTimer) return;
+  writeTimer = setTimeout(() => {
+    writeTimer = null;
+    const next = pendingRooms;
+    pendingRooms = null;
+    if (!next) return;
+    try {
+      writeFileSnapshot(next);
+    } catch {
+      // Keep the table in memory if the disk write is busy.
+    }
+  }, 50);
+}
+
+async function openBlobStore() {
+  const { getStore, getDeployStore } = await import("@netlify/blobs");
+  try {
+    return getStore(STORE_NAME);
+  } catch {
+    try {
+      return getDeployStore(STORE_NAME);
+    } catch {
+      return null;
+    }
+  }
 }
 
 async function readBlobSnapshot(): Promise<Room[] | null> {
   try {
-    const store = await blobs();
-    const parsed = await store.get("state", { type: "json", consistency: "strong" });
+    const store = await openBlobStore();
+    if (!store) return null;
+    const parsed = await withTimeout(store.get("state", { type: "json" }));
     if (!parsed || typeof parsed !== "object") return null;
     const rooms = (parsed as Snapshot).rooms;
     return Array.isArray(rooms) ? rooms : null;
-  } catch {
+  } catch (error) {
+    console.error("[poker-night] failed to read rooms", error);
     return null;
   }
+}
+
+async function writeBlobSnapshot(rooms: Room[]) {
+  const store = await openBlobStore();
+  if (!store) return false;
+  await withTimeout(store.setJSON("state", { rooms }));
+  return true;
 }
 
 export function mergeRooms(remote: Room[], local: Room[]) {
@@ -55,43 +162,40 @@ export function mergeRooms(remote: Room[], local: Room[]) {
 }
 
 export async function loadDurableRooms(): Promise<Room[] | null> {
-  if (blobEnabled()) {
-    const remote = await readBlobSnapshot();
-    if (remote) return remote;
-  }
-  return readFileSnapshot();
-}
-
-let pendingRooms: Room[] | null = null;
-let writeTimer: ReturnType<typeof setTimeout> | null = null;
-
-function queueFileWrite(rooms: Room[]) {
-  pendingRooms = rooms;
-  if (writeTimer) return;
-  writeTimer = setTimeout(() => {
-    writeTimer = null;
-    const next = pendingRooms;
-    pendingRooms = null;
-    if (!next) return;
-    try {
-      writeFileSnapshot(next);
-    } catch {
-      // The table stays in memory if the disk write is busy.
-    }
-  }, 300);
+  return (await readBlobSnapshot()) ?? readFileSnapshot();
 }
 
 export async function saveDurableRooms(local: Room[]) {
-  if (!blobEnabled()) {
-    queueFileWrite(local);
-    return;
+  const remote = (await readBlobSnapshot()) ?? readFileSnapshot() ?? [];
+  const merged = mergeRooms(remote, local);
+  try {
+    if (await writeBlobSnapshot(merged)) {
+      try {
+        writeFileSnapshot(merged);
+      } catch {
+        /* optional local copy */
+      }
+      return true;
+    }
+  } catch (error) {
+    console.error("[poker-night] failed to write Netlify Blobs", error);
   }
+  try {
+    writeFileSnapshot(merged);
+    return true;
+  } catch (error) {
+    console.error("[poker-night] failed to write local room snapshot", error);
+    if (!serverlessRuntime()) queueFileWrite(merged);
+    return !serverlessRuntime();
+  }
+}
+
+export async function persistDurableRooms(local: Room[]) {
   const job = queue.then(async () => {
-    const remote = (await readBlobSnapshot()) ?? [];
-    const merged = mergeRooms(remote, local);
-    const store = await blobs();
-    await store.setJSON("state", { rooms: merged });
+    await saveDurableRooms(local);
   });
   queue = job.catch(() => undefined);
-  await job;
+  await job.catch((error) => {
+    console.error("[poker-night] persist failed", error);
+  });
 }
