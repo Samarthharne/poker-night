@@ -179,15 +179,31 @@ function mergePlayers(preferred: Room["players"], other: Room["players"]) {
   return merged;
 }
 
+const PHASE_RANK: Record<string, number> = {
+  waiting: 0,
+  preflop: 1,
+  flop: 2,
+  turn: 3,
+  river: 4,
+  showdown: 5,
+  complete: 6,
+};
+
 function gameRank(room: Room) {
   const phase = room.game?.phase ?? "";
   const hand = room.game?.handNumber ?? 0;
   const seq = room.game?.actionSeq ?? 0;
-  if (room.status === "playing" || room.status === "paused") return 200_000 + hand * 1_000 + seq;
-  if (phase && phase !== "waiting" && phase !== "complete") {
-    return 200_000 + hand * 1_000 + seq;
+  const board = room.game?.communityCards.length ?? 0;
+  const street = PHASE_RANK[phase] ?? 0;
+  if (room.status === "playing" || room.status === "paused") {
+    return 200_000_000 + hand * 100_000 + street * 1_000 + board * 50 + seq;
   }
-  if (room.status === "complete" || phase === "complete") return 50_000 + hand * 1_000 + seq;
+  if (street > 0 && phase !== "complete") {
+    return 200_000_000 + hand * 100_000 + street * 1_000 + board * 50 + seq;
+  }
+  if (room.status === "complete" || phase === "complete") {
+    return 50_000_000 + hand * 100_000 + seq;
+  }
   return seq;
 }
 

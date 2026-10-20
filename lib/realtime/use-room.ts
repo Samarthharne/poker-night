@@ -5,6 +5,30 @@ import { eventsUrl, fetchRoom } from "@/lib/client/api";
 import { emitVideoSignal } from "@/lib/video/signal-client";
 import type { RoomSnapshot } from "@/types/room";
 
+const PHASE_SCORE: Record<string, number> = {
+  lobby: 0,
+  waiting: 0,
+  preflop: 1,
+  flop: 2,
+  turn: 3,
+  river: 4,
+  showdown: 5,
+  complete: 6,
+};
+
+function progress(snapshot: RoomSnapshot | null) {
+  if (!snapshot) return -1;
+  if (snapshot.status === "lobby") return 0;
+  const game = snapshot.game;
+  if (!game) return 1;
+  return (
+    game.handNumber * 100_000 +
+    (PHASE_SCORE[game.phase] ?? 0) * 1_000 +
+    game.communityCards.length * 50 +
+    (game.actionSeq ?? 0)
+  );
+}
+
 export function useRoomSync(code: string, enabled: boolean) {
   const [snapshot, setSnapshot] = useState<RoomSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -16,13 +40,9 @@ export function useRoomSync(code: string, enabled: boolean) {
       if (incoming.status === "lobby" || incoming.status === "closed") {
         return incoming;
       }
-      if (
-        prev?.game &&
-        incoming.game &&
-        (incoming.game.actionSeq ?? 0) < (prev.game.actionSeq ?? 0)
-      ) {
-        return prev;
-      }
+      const prevScore = progress(prev);
+      const nextScore = progress(incoming);
+      if (prevScore > nextScore) return prev;
       return incoming;
     });
     setConnected(true);

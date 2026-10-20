@@ -84,6 +84,7 @@ export function beginHand(room: Room) {
     p.hasActedThisRound = p.chipBalance <= 0;
   }
 
+  game.handNumber += 1;
   const dealerSeat =
     nextOccupiedSeat(room, game.dealerSeat) ?? seated[0]!.seatNumber;
   const isHeadsUp = seated.length === 2;
@@ -95,7 +96,7 @@ export function beginHand(room: Room) {
     seated.find((p) => p.seatNumber !== sbSeat)?.seatNumber ??
     sbSeat;
 
-  const deck = shuffledDeck(createDeck());
+  const deck = shuffledDeck(createDeck(), `${room.id}:${game.handNumber}`);
   const live = room.players.filter(
     (p) => p.chipBalance > 0 && seated.some((s) => s.id === p.id),
   );
@@ -108,7 +109,6 @@ export function beginHand(room: Room) {
     p.hasActedThisRound = false;
   }
 
-  game.handNumber += 1;
   game.dealerSeat = dealerSeat;
   game.communityCards = [];
   game.deck = deck;
@@ -303,13 +303,29 @@ function resetRoundBets(room: Room) {
   room.game.lastRaiseSize = room.bigBlind;
 }
 
+function cardsForPhase(phase: string) {
+  if (phase === "flop") return 3;
+  if (phase === "turn") return 4;
+  if (phase === "river" || phase === "showdown") return 5;
+  return 0;
+}
+
 function dealCommunity(room: Room, count: number) {
   const game = room.game!;
+  const needed = Math.max(0, count);
+  if (needed === 0) return;
   game.deck.pop(); // burn
-  for (let i = 0; i < count; i++) {
+  for (let i = 0; i < needed; i++) {
     const card = game.deck.pop();
     if (card) game.communityCards.push(card);
   }
+}
+
+function fillCommunity(room: Room, phase: string) {
+  const want = cardsForPhase(phase);
+  const have = room.game!.communityCards.length;
+  if (have >= want) return;
+  dealCommunity(room, want - have);
 }
 
 function firstPostflopActor(room: Room) {
@@ -329,17 +345,19 @@ function nextStreet(room: Room) {
 
   if (game.phase === "preflop") {
     game.phase = "flop";
-    dealCommunity(room, 3);
+    fillCommunity(room, "flop");
   } else if (game.phase === "flop") {
     game.phase = "turn";
-    dealCommunity(room, 1);
+    fillCommunity(room, "turn");
   } else if (game.phase === "turn") {
     game.phase = "river";
-    dealCommunity(room, 1);
+    fillCommunity(room, "river");
   } else if (game.phase === "river") {
     goShowdown(room);
     return;
   }
+
+  game.actionSeq = (game.actionSeq ?? 0) + 1;
 
   const next = firstPostflopActor(room);
   if (next == null) {
