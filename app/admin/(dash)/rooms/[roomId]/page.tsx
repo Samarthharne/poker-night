@@ -36,7 +36,7 @@ type OtherRoom = {
   phase: string;
   connected: number;
   playerNames: string[];
-  players: Player[];
+  seatedPlayers: Player[];
 };
 
 export default function AdminRoomPage() {
@@ -61,7 +61,7 @@ export default function AdminRoomPage() {
         setOthers(
           body.rooms
             .filter((item) => item.id !== roomId)
-            .map((item) => ({ ...item, players: item.players ?? [] })),
+            .map((item) => ({ ...item, seatedPlayers: item.seatedPlayers ?? [] })),
         );
       }
     } catch {
@@ -151,7 +151,7 @@ export default function AdminRoomPage() {
         item.id === targetRoomId
           ? {
               ...item,
-              players: item.players.map((player) =>
+              seatedPlayers: item.seatedPlayers.map((player) =>
                 player.id === playerId ? { ...player, chipBalance } : player,
               ),
             }
@@ -232,7 +232,7 @@ export default function AdminRoomPage() {
   const anyoneHere = room.players.some((player) => player.isConnected);
   const liveTable = anyoneHere
     ? null
-    : (others.find((item) => item.connected > 0 && (item.players?.length ?? 0) > 0) ?? null);
+    : (others.find((item) => item.connected > 0 && (item.seatedPlayers?.length ?? 0) > 0) ?? null);
   const liveElsewhere = others.filter(
     (item) => item.connected > 0 || item.status === "complete" || item.phase === "complete",
   );
@@ -347,7 +347,7 @@ export default function AdminRoomPage() {
             Add chips here. This is the table on the player screen. {room.name} is a different room.
           </p>
           <div className="mt-3 space-y-2">
-            {liveTable.players.map((player) => (
+            {liveTable.seatedPlayers.map((player) => (
               <div key={player.id} className="rounded-xl border border-gold/30 bg-white/5 px-3 py-3">
                 <span>
                   {player.displayName} · seat {player.seatNumber} · {player.chipBalance} chips

@@ -85,7 +85,7 @@ function summarize(room: ReturnType<typeof listRooms>[number]) {
     invitationActive: Boolean(room.inviteHash) && !room.closedAt,
     phase: room.game?.phase ?? "lobby",
     playerNames: room.players.filter((p) => !p.removed).map((p) => p.displayName),
-    players: room.players
+    seatedPlayers: room.players
       .filter((p) => !p.removed)
       .map((p) => ({
         id: p.id,
