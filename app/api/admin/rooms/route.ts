@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/admin/auth";
 import { issueInvitation } from "@/lib/admin/invitations";
+import { publicOrigin } from "@/lib/http/origin";
 import { createEmptyRoom, ensureStore, listRooms, persistRooms } from "@/lib/store/rooms";
 
 export const dynamic = "force-dynamic";
@@ -59,7 +60,7 @@ export async function POST(req: Request) {
     room.hostId = "admin";
     const token = issueInvitation(room, expiresAt);
     await persistRooms();
-    const invitationUrl = `${new URL(req.url).origin}/room/${token}`;
+    const invitationUrl = `${publicOrigin(req)}/room/${token}`;
     return NextResponse.json({ room: summarize(room), invitationUrl });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Could not create the room";

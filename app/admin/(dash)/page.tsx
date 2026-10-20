@@ -196,7 +196,11 @@ export default function AdminDashboard() {
             <Input type="number" min={1} value={hours} onChange={(e) => setHours(Number(e.target.value))} />
           </div>
         </div>
-        <p className="text-xs text-white/45">Big blind is twice the small blind. Texas Hold&apos;em, virtual chips only.</p>
+        <p className="text-xs text-white/45">
+          Big blind is twice the small blind. Texas Hold&apos;em, virtual chips only. If friends see a Netlify
+          &quot;Page not found&quot; robot, the site is still private: Netlify → Project configuration → General →
+          Visitor access → Public.
+        </p>
         <Button type="submit" disabled={creating}>
           {creating ? "Creating..." : "Create room"}
         </Button>

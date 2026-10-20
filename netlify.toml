@@ -6,3 +6,6 @@
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
+
+# Invitation links only work if Visitor access is Public.
+# Netlify UI: Project configuration → General → Visitor access → Public.

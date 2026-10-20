@@ -56,7 +56,8 @@ Netlify runs this app as serverless functions. Live tables are stored in Netlify
 2. The build command is `npm run build` (`netlify.toml` already selects the Next.js plugin and Node 20).
 3. In Site configuration → Environment variables, set `ADMIN_EMAIL`, `ADMIN_PASSWORD`, and `ADMIN_SESSION_SECRET` (at least 16 random characters).
 4. Deploy, then open `https://<your-site>.netlify.app/admin/login`.
-5. Create a room and send the invitation link to the players.
+5. Make the project **Public** or friends cannot open invitation links. In Netlify: **Project configuration → General → Visitor access → Project visibility → Public**. A private site shows Netlify’s robot “Page not found” page instead of the poker table.
+6. Create a room and send the invitation link to the players.
 
 On the same Wi-Fi you can skip Netlify: run `npm run dev` and share `http://<your-computer-ip>:3000/room/<invitation-token>`.
 

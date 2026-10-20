@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { publicOrigin } from "@/lib/http/origin";
 import {
   endGame,
   pauseGame,
@@ -191,10 +192,9 @@ export async function POST(
       }
       case "regenerate": {
         const invitationToken = issueInvitation(room, room.inviteExpiresAt);
-        const origin = new URL(req.url).origin;
         return NextResponse.json({
           invitationToken,
-          invitationUrl: `${origin}/room/${invitationToken}`,
+          invitationUrl: `${publicOrigin(req)}/room/${invitationToken}`,
         });
       }
       case "revoke": {
@@ -207,9 +207,8 @@ export async function POST(
         if (!invitationToken || !room.inviteHash) {
           return jsonError("This invitation has been revoked. Generate a new one.");
         }
-        const origin = new URL(req.url).origin;
         return NextResponse.json({
-          invitationUrl: `${origin}/room/${invitationToken}`,
+          invitationUrl: `${publicOrigin(req)}/room/${invitationToken}`,
         });
       }
       case "close": {
