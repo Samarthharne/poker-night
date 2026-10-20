@@ -151,12 +151,37 @@ async function writeBlobSnapshot(rooms: Room[]) {
   return true;
 }
 
+function mergePlayers(left: Room["players"], right: Room["players"]) {
+  const map = new Map<string, Room["players"][number]>();
+  for (const player of [...left, ...right]) {
+    const previous = map.get(player.id);
+    if (!previous || (player.lastSeenAt ?? 0) >= (previous.lastSeenAt ?? 0)) {
+      map.set(player.id, player);
+    }
+  }
+  return [...map.values()].filter((player) => !player.removed);
+}
+
+export function mergeRoomPair(left: Room, right: Room): Room {
+  const newer = left.updatedAt >= right.updatedAt ? left : right;
+  const older = newer === left ? right : left;
+  return {
+    ...newer,
+    players: mergePlayers(left.players, right.players),
+    inviteHash: newer.inviteHash || older.inviteHash,
+    inviteSealed: newer.inviteSealed || older.inviteSealed,
+    inviteExpiresAt: newer.inviteExpiresAt ?? older.inviteExpiresAt,
+    rtcSignals: [...(older.rtcSignals ?? []), ...(newer.rtcSignals ?? [])].slice(-160),
+    messages: newer.messages.length >= older.messages.length ? newer.messages : older.messages,
+  };
+}
+
 export function mergeRooms(remote: Room[], local: Room[]) {
   const map = new Map<string, Room>();
   for (const room of remote) map.set(room.id, room);
   for (const room of local) {
     const previous = map.get(room.id);
-    if (!previous || room.updatedAt >= previous.updatedAt) map.set(room.id, room);
+    map.set(room.id, previous ? mergeRoomPair(previous, room) : room);
   }
   return [...map.values()];
 }

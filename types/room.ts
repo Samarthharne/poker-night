@@ -52,6 +52,13 @@ export type Room = {
   game: GameState | null;
   messages: ChatMessage[];
   handHistory: string[];
+  rtcSignals?: {
+    from: string;
+    to: string;
+    description?: { type: string; sdp?: string };
+    candidate?: Record<string, unknown> | null;
+    at: number;
+  }[];
 };
 
 export type PublicGameState = Omit<GameState, "deck"> & {

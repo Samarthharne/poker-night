@@ -10,7 +10,7 @@ import {
 import { jsonError } from "@/lib/api/guard";
 import { requireAdmin } from "@/lib/admin/auth";
 import { currentInviteToken, issueInvitation } from "@/lib/admin/invitations";
-import { ensureStore, getRoomByCode, getRoomById, getRoomByInviteToken, listRooms, saveRoom, snapshotFor } from "@/lib/store/rooms";
+import { ensureStore, getRoomByCode, getRoomById, getRoomByInviteToken, listRooms, saveRoomNow, snapshotFor } from "@/lib/store/rooms";
 import type { Room } from "@/types/room";
 
 function restartTarget(room: Room) {
@@ -192,6 +192,7 @@ export async function POST(
       }
       case "regenerate": {
         const invitationToken = issueInvitation(room, room.inviteExpiresAt);
+        await saveRoomNow(room);
         return NextResponse.json({
           invitationToken,
           invitationUrl: `${publicOrigin(req)}/room/${invitationToken}`,
@@ -199,7 +200,7 @@ export async function POST(
       }
       case "revoke": {
         room.inviteHash = "";
-        saveRoom(room);
+        await saveRoomNow(room);
         return NextResponse.json({ revoked: true });
       }
       case "reveal": {
@@ -230,7 +231,7 @@ export async function POST(
         return jsonError("Unknown host command.");
     }
 
-    saveRoom(room);
+    await saveRoomNow(room);
     return NextResponse.json({ snapshot: snapshotFor(room, token) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Host action failed.";

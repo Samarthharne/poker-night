@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { loadRoomPlayer } from "@/lib/api/guard";
-import { heartbeat, saveRoom, snapshotFor } from "@/lib/store/rooms";
+import { heartbeat, saveRoomNow, snapshotFor } from "@/lib/store/rooms";
 
 export async function POST(
   req: Request,
@@ -21,6 +21,6 @@ export async function POST(
   }
   if (typeof body.ready === "boolean") player.isReady = body.ready;
   heartbeat(room, player);
-  saveRoom(room);
+  await saveRoomNow(room);
   return NextResponse.json({ snapshot: snapshotFor(room, token) });
 }

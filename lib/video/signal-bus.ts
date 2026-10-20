@@ -1,8 +1,12 @@
+import type { Room } from "@/types/room";
+import { saveRoom } from "@/lib/store/rooms";
+
 export type RtcSignal = {
   from: string;
   to: string;
   description?: { type: string; sdp?: string };
   candidate?: Record<string, unknown> | null;
+  at?: number;
 };
 
 type Waiter = (signal: RtcSignal) => void;
@@ -37,6 +41,26 @@ export function publishSignal(roomId: string, signal: RtcSignal) {
   queue.push(signal);
   if (queue.length > 80) queue.splice(0, queue.length - 80);
   store.queues.set(id, queue);
+}
+
+export function persistSignal(room: Room, signal: RtcSignal) {
+  const now = Date.now();
+  room.rtcSignals = [...(room.rtcSignals ?? []), { ...signal, at: now }]
+    .filter((item) => now - (item.at ?? now) < 20_000)
+    .slice(-160);
+  saveRoom(room);
+}
+
+export function takePersistedSignals(room: Room, playerId: string) {
+  const now = Date.now();
+  const all = (room.rtcSignals ?? []).filter((item) => now - (item.at ?? now) < 20_000);
+  const mine = all.filter((item) => item.to === playerId);
+  const rest = all.filter((item) => item.to !== playerId);
+  if (mine.length || rest.length !== (room.rtcSignals ?? []).length) {
+    room.rtcSignals = rest;
+    saveRoom(room);
+  }
+  return mine;
 }
 
 export function subscribeSignals(roomId: string, playerId: string, listener: Waiter) {

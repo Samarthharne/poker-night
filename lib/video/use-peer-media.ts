@@ -6,7 +6,10 @@ import { onVideoSignal } from "./signal-client";
 
 type Description = { type: RTCSdpType; sdp?: string };
 
-const ICE = [{ urls: "stun:stun.l.google.com:19302" }];
+const ICE = [
+  { urls: "stun:stun.l.google.com:19302" },
+  { urls: "stun:stun1.l.google.com:19302" },
+];
 
 export function usePeerMedia(
   code: string,
@@ -54,14 +57,19 @@ export function usePeerMedia(
       }
     }
 
+    function isOfferer(peerId: string) {
+      return (selfRef.current ?? "") < peerId;
+    }
+
     async function offer(peerId: string, pc: RTCPeerConnection) {
-      const self = selfRef.current;
-      if (!self || self < peerId || pc.signalingState !== "stable") return;
+      if (!isOfferer(peerId) || pc.signalingState !== "stable") return;
       attachLocal(pc);
       const description = await pc.createOffer();
       if (closed) return;
       await pc.setLocalDescription(description);
-      await post(peerId, { description: pc.localDescription?.toJSON() });
+      const local = pc.localDescription;
+      if (!local) return;
+      await post(peerId, { description: { type: local.type, sdp: local.sdp } });
     }
 
     function ensure(peerId: string) {
@@ -111,7 +119,8 @@ export function usePeerMedia(
           attachLocal(pc);
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
-          await post(signal.from, { description: pc.localDescription?.toJSON() });
+          const answer = pc.localDescription;
+          if (answer) await post(signal.from, { description: { type: answer.type, sdp: answer.sdp } });
         }
       }
       if (signal.candidate) {
@@ -141,13 +150,27 @@ export function usePeerMedia(
     const stopSignals = onVideoSignal((signal) => {
       void take(signal).catch(() => undefined);
     });
+    async function drain() {
+      const token = getRoomToken(code);
+      const res = await fetch(`/api/rooms/${encodeURIComponent(code)}/signals?poll=1`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        cache: "no-store",
+      });
+      if (!res.ok) return;
+      const body = (await res.json()) as { signals?: Array<{ from: string; description?: Description; candidate?: RTCIceCandidateInit | null }> };
+      for (const signal of body.signals ?? []) {
+        await take(signal).catch(() => undefined);
+      }
+    }
+    void drain();
     const retry = setInterval(() => {
+      void drain().catch(() => undefined);
       for (const peerId of wanted) {
         const pc = pcs.current.get(peerId);
-        if (!pc || pc.connectionState === "connected") continue;
+        if (!pc || pc.connectionState === "connected" || pc.connectionState === "connecting") continue;
         void offer(peerId, pc);
       }
-    }, 2500);
+    }, 900);
 
     return () => {
       closed = true;
@@ -167,19 +190,21 @@ export function usePeerMedia(
           pc.addTrack(track, localStream);
         }
       }
-      if ((selfId ?? "") > peerId && pc.signalingState === "stable") {
+      if ((selfId ?? "") < peerId && pc.signalingState === "stable") {
         void pc
           .createOffer()
           .then(async (description) => {
             await pc.setLocalDescription(description);
             const token = getRoomToken(code);
+            const local = pc.localDescription;
+            if (!local) return;
             await fetch(`/api/rooms/${encodeURIComponent(code)}/signals`, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
                 ...(token ? { Authorization: `Bearer ${token}` } : {}),
               },
-              body: JSON.stringify({ to: peerId, description: pc.localDescription }),
+              body: JSON.stringify({ to: peerId, description: { type: local.type, sdp: local.sdp } }),
             });
           })
           .catch(() => undefined);

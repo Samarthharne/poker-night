@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { playerLeaveHand } from "@/lib/poker/game-engine";
 import { loadRoomPlayer } from "@/lib/api/guard";
-import { saveRoom, snapshotFor } from "@/lib/store/rooms";
+import { saveRoomNow, snapshotFor } from "@/lib/store/rooms";
 
 export async function POST(
   req: Request,
@@ -26,6 +26,6 @@ export async function POST(
     player.microphoneEnabled = false;
   }
 
-  saveRoom(room);
+  await saveRoomNow(room);
   return NextResponse.json({ ok: true, snapshot: snapshotFor(room, null) });
 }

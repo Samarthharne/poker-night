@@ -9,7 +9,7 @@ import {
   ensureStore,
   getRoomByInviteToken,
   heartbeat,
-  saveRoom,
+  saveRoomNow,
   snapshotFor,
 } from "@/lib/store/rooms";
 
@@ -57,7 +57,7 @@ export async function POST(
       returning.microphoneEnabled = body.microphoneEnabled;
     }
     heartbeat(room, returning);
-    saveRoom(room);
+    await saveRoomNow(room);
     return seatCookie(
       NextResponse.json({
         token: returning.token,
@@ -104,7 +104,7 @@ export async function POST(
     contributedThisHand: 0,
   };
   room.players.push(player);
-  saveRoom(room);
+  await saveRoomNow(room);
 
   return seatCookie(
     NextResponse.json({

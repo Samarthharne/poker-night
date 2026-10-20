@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { jsonError, loadRoom, requirePlayer } from "@/lib/auth";
-import { heartbeat, saveRoom, snapshotFor } from "@/lib/store/rooms";
+import { heartbeat, saveRoomNow, snapshotFor } from "@/lib/store/rooms";
 
 export async function POST(
   req: Request,
@@ -11,7 +11,7 @@ export async function POST(
     const room = await loadRoom(code, req);
     const player = requirePlayer(req, room);
     heartbeat(room, player);
-    saveRoom(room);
+    await saveRoomNow(room);
     return NextResponse.json({ snapshot: snapshotFor(room, player.token) });
   } catch (error) {
     const { message, status } = jsonError(error);

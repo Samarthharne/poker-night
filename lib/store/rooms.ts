@@ -149,6 +149,11 @@ export async function persistRooms() {
   await persistDurableRooms(listRooms());
 }
 
+export async function saveRoomNow(room: Room) {
+  saveRoom(room);
+  await persistRooms();
+}
+
 export function subscribe(code: string, listener: Listener) {
   const store = getStore();
   const key = code.toUpperCase();
@@ -227,7 +232,7 @@ export function advanceRoom(room: Room) {
       // keep the table available
     }
   }
-  const stale = Date.now() - 25_000;
+  const stale = Date.now() - 90_000;
   for (const p of room.players) {
     if (p.token.startsWith("bot-")) continue;
     if (p.isConnected && p.lastSeenAt < stale) {
@@ -279,5 +284,6 @@ export function createEmptyRoom(input: {
     game: null,
     messages: [],
     handHistory: [],
+    rtcSignals: [],
   };
 }

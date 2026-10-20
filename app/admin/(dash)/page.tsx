@@ -56,6 +56,8 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     void load();
+    const refresh = setInterval(() => void load(), 3000);
+    return () => clearInterval(refresh);
   }, []);
 
   async function create(e: FormEvent) {
@@ -225,11 +227,11 @@ export default function AdminDashboard() {
       <section className="mt-8">
         <h2 className="font-display text-2xl">Tables with players</h2>
         <div className="mt-4 space-y-2">
-          {rooms.filter((room) => room.connected > 0 || room.status === "complete" || room.phase === "complete").length === 0 && (
+          {rooms.filter((room) => room.players > 0 || room.connected > 0 || room.status === "complete" || room.phase === "complete").length === 0 && (
             <p className="text-sm text-white/45">No one is connected right now.</p>
           )}
           {rooms
-            .filter((room) => room.connected > 0 || room.status === "complete" || room.phase === "complete")
+            .filter((room) => room.players > 0 || room.connected > 0 || room.status === "complete" || room.phase === "complete")
             .map((room) => {
               const over = room.status === "complete" || room.phase === "complete";
               return (
@@ -291,11 +293,11 @@ export default function AdminDashboard() {
           These tables have no connected players, so restarting them does not change the game your friends are in.
         </p>
         <div className="mt-4 space-y-2">
-          {rooms.filter((room) => room.connected === 0 && room.status !== "complete" && room.phase !== "complete").length === 0 && (
+          {rooms.filter((room) => room.players === 0 && room.connected === 0 && room.status !== "complete" && room.phase !== "complete").length === 0 && (
             <p className="text-sm text-white/45">No empty rooms.</p>
           )}
           {rooms
-            .filter((room) => room.connected === 0 && room.status !== "complete" && room.phase !== "complete")
+            .filter((room) => room.players === 0 && room.connected === 0 && room.status !== "complete" && room.phase !== "complete")
             .map((room) => (
               <Link
                 key={room.id}
@@ -303,10 +305,9 @@ export default function AdminDashboard() {
                 className="glass-card block rounded-2xl px-4 py-3"
               >
                 <span className="font-semibold">{room.name}</span>
+                <span className="ml-2 text-xs uppercase text-gold">Room {room.roomCode}</span>
                 <span className="ml-2 text-xs uppercase text-white/45">{room.status}</span>
-                <span className="mt-1 block text-sm text-white/55">
-                  {room.playerNames.length > 0 ? room.playerNames.join(", ") : "No one seated"} · not connected
-                </span>
+                <span className="mt-1 block text-sm text-white/55">No one seated</span>
               </Link>
             ))}
         </div>

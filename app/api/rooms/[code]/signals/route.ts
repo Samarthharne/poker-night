@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { clientKey, rateLimit } from "@/lib/admin/rate-limit";
 import { loadRoomPlayer } from "@/lib/api/guard";
-import { publishSignal, subscribeSignals, type RtcSignal } from "@/lib/video/signal-bus";
+import { persistRooms } from "@/lib/store/rooms";
+import {
+  persistSignal,
+  publishSignal,
+  subscribeSignals,
+  takePersistedSignals,
+  type RtcSignal,
+} from "@/lib/video/signal-bus";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +42,8 @@ export async function POST(
     return NextResponse.json({ error: "Missing video signal." }, { status: 400 });
   }
   publishSignal(loaded.room.id, signal);
+  persistSignal(loaded.room, signal);
+  await persistRooms();
   return NextResponse.json({ ok: true });
 }
 
@@ -45,6 +54,11 @@ export async function GET(
   const { code } = await ctx.params;
   const loaded = await loadRoomPlayer(req, code);
   if ("error" in loaded) return loaded.error;
+  if (new URL(req.url).searchParams.get("poll") === "1") {
+    const signals = takePersistedSignals(loaded.room, loaded.player.id);
+    if (signals.length) await persistRooms();
+    return NextResponse.json({ signals });
+  }
   const roomId = loaded.room.id;
   const playerId = loaded.player.id;
   const encoder = new TextEncoder();

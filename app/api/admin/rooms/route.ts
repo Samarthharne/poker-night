@@ -13,7 +13,7 @@ export async function GET(req: Request) {
   await ensureStore(req);
   const rooms = listRooms();
   const connected = rooms.reduce(
-    (sum, room) => sum + room.players.filter((p) => !p.removed && p.isConnected).length,
+    (sum, room) => sum + room.players.filter((p) => !p.removed && isPresent(p)).length,
     0,
   );
   return NextResponse.json({
@@ -68,7 +68,14 @@ export async function POST(req: Request) {
   }
 }
 
+function isPresent(player: { removed?: boolean; isConnected?: boolean; lastSeenAt?: number }) {
+  if (player.removed) return false;
+  if (player.isConnected) return true;
+  return Date.now() - (player.lastSeenAt ?? 0) < 90_000;
+}
+
 function summarize(room: ReturnType<typeof listRooms>[number]) {
+  const seated = room.players.filter((p) => !p.removed);
   return {
     id: room.id,
     name: room.name,
@@ -79,8 +86,8 @@ function summarize(room: ReturnType<typeof listRooms>[number]) {
     startingChips: room.startingChips,
     smallBlind: room.smallBlind,
     bigBlind: room.bigBlind,
-    players: room.players.filter((p) => !p.removed).length,
-    connected: room.players.filter((p) => !p.removed && p.isConnected).length,
+    players: seated.length,
+    connected: seated.filter(isPresent).length,
     createdAt: room.createdAt,
     expiresAt: room.expiresAt,
     invitationActive: Boolean(room.inviteHash) && !room.closedAt,

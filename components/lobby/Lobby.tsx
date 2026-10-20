@@ -7,7 +7,7 @@ import { Label } from "@/components/ui/input";
 import { sendHost } from "@/lib/client/api";
 import { formatChips, initials } from "@/lib/utils";
 import type { RoomSnapshot } from "@/types/room";
-import { PlayerSeat } from "@/components/poker/PlayerSeat";
+import { SeatRing } from "@/components/poker/SeatRing";
 
 export function Lobby({
   snapshot,
@@ -35,10 +35,8 @@ export function Lobby({
     }
   }
 
-  const seats = Array.from({ length: snapshot.maxPlayers }, (_, i) => i + 1);
-
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 py-6">
+    <div className="mx-auto flex h-full min-h-0 w-full max-w-6xl flex-col gap-3 overflow-hidden px-3 py-3">
       <div className="text-center">
         <p className="text-xs uppercase tracking-[0.3em] text-gold/70">Waiting room</p>
         <h1 className="font-display text-3xl">{snapshot.name}</h1>
@@ -47,49 +45,25 @@ export function Lobby({
         </p>
       </div>
 
-      <div className="relative mx-auto w-full max-w-4xl">
-        <div className="felt-table wood-rail mx-auto aspect-2/1 w-full max-w-[920px] rounded-[999px]" />
-        <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-          {seats.map((seat) => {
-            const player = snapshot.players.find((p) => p.seatNumber === seat);
-            if (!player) {
-              return (
-                <div
-                  key={seat}
-                  className="glass-card flex min-h-[120px] items-center justify-center rounded-3xl text-sm text-white/40"
-                >
-                  Seat {seat} · Empty
-                </div>
-              );
-            }
-            return (
-              <div key={player.id} className="flex flex-col items-center gap-2">
-                <PlayerSeat
-                  player={player}
-                  dealerSeat={null}
-                  smallBlindSeat={null}
-                  bigBlindSeat={null}
-                  isTurn={false}
-                  localStream={player.id === localId ? localStream : null}
-                  remoteStream={remoteStreams?.[player.id] ?? null}
-                  isYou={player.id === localId}
-                />
-                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] uppercase tracking-wider text-emerald-300">
-                  {player.isReady ? "Ready" : "Joining"}
-                </span>
-                {isHost && !player.isHost && (
-                  <Button size="sm" variant="ghost" onClick={() => host("kick", { playerId: player.id })}>
-                    Remove
-                  </Button>
-                )}
-              </div>
-            );
-          })}
+      <div className="relative mx-auto flex min-h-0 w-full flex-1 items-center justify-center [container-type:size]">
+        <div
+          className="felt-table wood-rail relative rounded-[999px]"
+          style={{ width: "min(96cqw, calc(78cqh * 16 / 9))", aspectRatio: "16 / 9" }}
+        >
+          <SeatRing
+            maxPlayers={snapshot.maxPlayers}
+            players={snapshot.players}
+            youId={localId}
+            localStream={localStream}
+            remoteStreams={remoteStreams}
+            canKick={isHost}
+            onKick={(playerId) => void host("kick", { playerId })}
+          />
         </div>
       </div>
 
       {isHost ? (
-        <div className="glass-card mx-auto w-full max-w-xl space-y-4 rounded-3xl p-5">
+        <div className="glass-card mx-auto w-full max-w-xl shrink-0 space-y-3 rounded-3xl p-3">
           <div className="flex flex-wrap gap-2">
             <Button disabled={!canStart} onClick={() => host("start")}>
               Start Game
