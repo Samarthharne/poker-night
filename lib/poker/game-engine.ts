@@ -57,6 +57,7 @@ export function startGame(room: Room) {
     turnSeconds: room.turnSeconds || TURN_SECONDS,
     winners: [],
     paused: false,
+    actionSeq: 0,
   };
   beginHand(room);
 }
@@ -133,6 +134,7 @@ export function beginHand(room: Room) {
   game.currentSeat = first;
   game.turnStartedAt = Date.now();
   game.lastAction = `Hand #${game.handNumber}`;
+  game.actionSeq = (game.actionSeq ?? 0) + 1;
 }
 
 function postBlind(room: Room, seat: number, amount: number, label: string) {
@@ -255,6 +257,8 @@ export function applyAction(
   }
 
   syncPot(room);
+  game.actionSeq = (game.actionSeq ?? 0) + 1;
+  game.turnStartedAt = Date.now();
   advanceAfterAction(room, player.seatNumber);
 }
 

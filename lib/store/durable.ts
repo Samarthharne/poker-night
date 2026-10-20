@@ -151,37 +151,58 @@ async function writeBlobSnapshot(rooms: Room[]) {
   return true;
 }
 
-function mergePlayers(left: Room["players"], right: Room["players"]) {
-  const map = new Map<string, Room["players"][number]>();
-  for (const player of [...left, ...right]) {
-    const previous = map.get(player.id);
-    if (!previous || (player.lastSeenAt ?? 0) >= (previous.lastSeenAt ?? 0)) {
-      map.set(player.id, player);
-    }
+function presenceOf(left?: Room["players"][number], right?: Room["players"][number]) {
+  const recent =
+    (right?.lastSeenAt ?? 0) >= (left?.lastSeenAt ?? 0) ? right ?? left : left ?? right;
+  return recent;
+}
+
+function mergePlayers(preferred: Room["players"], other: Room["players"]) {
+  const pref = new Map(preferred.map((player) => [player.id, player]));
+  const alt = new Map(other.map((player) => [player.id, player]));
+  const ids = new Set([...pref.keys(), ...alt.keys()]);
+  const merged: Room["players"] = [];
+  for (const id of ids) {
+    const main = pref.get(id);
+    const extra = alt.get(id);
+    const present = presenceOf(main, extra);
+    const base = main ?? extra;
+    if (!base || base.removed) continue;
+    merged.push({
+      ...base,
+      isConnected: present?.isConnected ?? base.isConnected,
+      lastSeenAt: Math.max(main?.lastSeenAt ?? 0, extra?.lastSeenAt ?? 0),
+      cameraEnabled: present?.cameraEnabled ?? base.cameraEnabled,
+      microphoneEnabled: present?.microphoneEnabled ?? base.microphoneEnabled,
+    });
   }
-  return [...map.values()].filter((player) => !player.removed);
+  return merged;
 }
 
 function gameRank(room: Room) {
   const phase = room.game?.phase ?? "";
   const hand = room.game?.handNumber ?? 0;
-  if (room.status === "playing" || room.status === "paused") return 200 + hand;
-  if (phase && phase !== "waiting" && phase !== "lobby" && phase !== "complete") return 200 + hand;
-  if (room.status === "complete" || phase === "complete") return 50 + hand;
-  return 0;
+  const seq = room.game?.actionSeq ?? 0;
+  if (room.status === "playing" || room.status === "paused") return 200_000 + hand * 1_000 + seq;
+  if (phase && phase !== "waiting" && phase !== "complete") {
+    return 200_000 + hand * 1_000 + seq;
+  }
+  if (room.status === "complete" || phase === "complete") return 50_000 + hand * 1_000 + seq;
+  return seq;
 }
 
 export function mergeRoomPair(left: Room, right: Room): Room {
   const newer = left.updatedAt >= right.updatedAt ? left : right;
   const older = newer === left ? right : left;
   const live = gameRank(left) >= gameRank(right) ? left : right;
+  const other = live === left ? right : left;
   return {
     ...newer,
     status: live.status,
     locked: live.status === "playing" || live.status === "paused" ? live.locked : newer.locked,
     game: live.game,
     turnSeconds: newer.turnSeconds || older.turnSeconds,
-    players: mergePlayers(left.players, right.players),
+    players: mergePlayers(live.players, other.players),
     inviteHash: newer.inviteHash || older.inviteHash,
     inviteSealed: newer.inviteSealed || older.inviteSealed,
     inviteExpiresAt: newer.inviteExpiresAt ?? older.inviteExpiresAt,

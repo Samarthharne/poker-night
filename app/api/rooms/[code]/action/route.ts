@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { applyAction } from "@/lib/poker/game-engine";
 import type { PokerActionType } from "@/types/poker";
 import { jsonError, loadRoomPlayer } from "@/lib/api/guard";
-import { heartbeat, saveRoom, snapshotFor } from "@/lib/store/rooms";
+import { heartbeat, saveRoomNow, snapshotFor } from "@/lib/store/rooms";
 
 const ACTIONS: PokerActionType[] = [
   "fold",
@@ -33,7 +33,7 @@ export async function POST(
     if (room.game?.phase === "showdown") {
       room.game.turnStartedAt = Date.now();
     }
-    saveRoom(room);
+    await saveRoomNow(room);
     return NextResponse.json({ snapshot: snapshotFor(room, token) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Action failed.";

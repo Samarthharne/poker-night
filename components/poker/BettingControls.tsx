@@ -11,9 +11,11 @@ import type { RoomSnapshot } from "@/types/room";
 export function BettingControls({
   snapshot,
   onUpdate,
+  roomCode,
 }: {
   snapshot: RoomSnapshot;
   onUpdate: (s: RoomSnapshot) => void;
+  roomCode?: string;
 }) {
   const legal = actionsForYou(snapshot);
   const yours = isYourTurn(snapshot);
@@ -34,8 +36,10 @@ export function BettingControls({
   async function act(type: "fold" | "check" | "call" | "bet" | "raise" | "all-in", amount?: number) {
     setBusy(true);
     try {
-      const data = await sendAction(snapshot.roomCode, type, amount);
-      if (data.snapshot) onUpdate(data.snapshot);
+      const data = await sendAction(roomCode ?? snapshot.roomCode, type, amount);
+      if (data.snapshot) {
+        onUpdate({ ...data.snapshot, you: data.snapshot.you ?? snapshot.you });
+      }
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Action failed");
     } finally {

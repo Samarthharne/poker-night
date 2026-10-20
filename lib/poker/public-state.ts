@@ -43,6 +43,7 @@ export function toSnapshot(
           winners: room.game.winners,
           lastAction: room.game.lastAction,
           paused: room.game.paused,
+          actionSeq: room.game.actionSeq ?? 0,
           deckRemaining: room.game.deck.length,
           deck: options?.includeDeck ? room.game.deck : undefined,
         }

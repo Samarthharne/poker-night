@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getTokenFromRequest } from "@/lib/session";
-import { ensureStore, findPlayerByToken, getRoomByCode, getRoomByInviteToken } from "@/lib/store/rooms";
+import { ensureStore, findPlayerByToken, getRoomByCode, getRoomById, getRoomByInviteToken } from "@/lib/store/rooms";
 import type { Player } from "@/types/player";
 import type { Room } from "@/types/room";
 
@@ -13,7 +13,7 @@ export async function loadRoomPlayer(
   code: string,
 ): Promise<{ error: NextResponse } | { room: Room; player: Player; token: string }> {
   await ensureStore(req);
-  const room = getRoomByInviteToken(code) ?? getRoomByCode(code);
+  const room = getRoomByInviteToken(code) ?? getRoomByCode(code) ?? getRoomById(code);
   if (!room) return { error: jsonError("This invitation is not valid.", 404) };
   const token = getTokenFromRequest(req);
   const player = findPlayerByToken(room, token);

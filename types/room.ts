@@ -28,6 +28,7 @@ export type GameState = {
   winners: Winner[];
   lastAction?: string;
   paused: boolean;
+  actionSeq: number;
 };
 
 export type Room = {

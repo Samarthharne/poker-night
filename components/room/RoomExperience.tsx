@@ -325,7 +325,7 @@ export function RoomExperience({ code }: { code: string }) {
                 <Users className="h-4 w-4" /> Players
               </Button>
             </div>
-            <BettingControls snapshot={snapshot} onUpdate={setSnapshot} />
+            <BettingControls snapshot={snapshot} onUpdate={setSnapshot} roomCode={code} />
           </div>
           <aside className="hidden w-[320px] shrink-0 border-l border-white/10 lg:flex lg:flex-col">
             <div className="flex border-b border-white/10">
