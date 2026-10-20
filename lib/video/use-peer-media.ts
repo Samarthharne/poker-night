@@ -6,21 +6,20 @@ import { onVideoSignal } from "./signal-client";
 
 type Description = { type: RTCSdpType; sdp?: string };
 
-const ICE = [
-  { urls: "stun:stun.l.google.com:19302" },
-  { urls: "stun:stun1.l.google.com:19302" },
-  { urls: "stun:stun.cloudflare.com:3478" },
-  {
-    urls: "turn:openrelay.metered.ca:80",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
-  {
-    urls: "turn:openrelay.metered.ca:443",
-    username: "openrelayproject",
-    credential: "openrelayproject",
-  },
-];
+const ICE: RTCConfiguration = {
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" },
+    { urls: "stun:stun1.l.google.com:19302" },
+    { urls: "stun:stun.cloudflare.com:3478" },
+  ],
+  iceCandidatePoolSize: 8,
+};
+
+type PeerSlot = {
+  pc: RTCPeerConnection;
+  makingOffer: boolean;
+  ignoreOffer: boolean;
+};
 
 export function usePeerMedia(
   code: string,
@@ -30,8 +29,9 @@ export function usePeerMedia(
   enabled: boolean,
 ) {
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
-  const pcs = useRef(new Map<string, RTCPeerConnection>());
+  const slots = useRef(new Map<string, PeerSlot>());
   const pendingIce = useRef(new Map<string, RTCIceCandidateInit[]>());
+  const remoteMedia = useRef(new Map<string, MediaStream>());
   const streamRef = useRef(localStream);
   const selfRef = useRef(selfId);
   streamRef.current = localStream;
@@ -55,6 +55,10 @@ export function usePeerMedia(
       });
     }
 
+    function isOfferer(peerId: string) {
+      return (selfRef.current ?? "") < peerId;
+    }
+
     function attachLocal(pc: RTCPeerConnection) {
       const stream = streamRef.current;
       if (!stream) return;
@@ -68,89 +72,120 @@ export function usePeerMedia(
       }
     }
 
-    function isOfferer(peerId: string) {
-      return (selfRef.current ?? "") < peerId;
-    }
-
-    async function offer(peerId: string, pc: RTCPeerConnection) {
-      if (!isOfferer(peerId) || pc.signalingState !== "stable") return;
-      attachLocal(pc);
-      const description = await pc.createOffer();
-      if (closed) return;
-      await pc.setLocalDescription(description);
-      const local = pc.localDescription;
-      if (!local) return;
-      await post(peerId, { description: { type: local.type, sdp: local.sdp } });
+    function bindRemote(peerId: string, track: MediaStreamTrack) {
+      const local = streamRef.current;
+      if (local?.getTracks().some((item) => item.id === track.id)) return;
+      let stream = remoteMedia.current.get(peerId);
+      if (!stream) {
+        stream = new MediaStream();
+        remoteMedia.current.set(peerId, stream);
+      }
+      for (const existing of stream.getTracks()) {
+        if (existing.kind === track.kind && existing.id !== track.id) stream.removeTrack(existing);
+      }
+      if (!stream.getTracks().includes(track)) stream.addTrack(track);
+      const next = stream;
+      setRemoteStreams((prev) => (prev[peerId] === next ? { ...prev } : { ...prev, [peerId]: next }));
+      track.onunmute = () => {
+        setRemoteStreams((prev) => ({ ...prev, [peerId]: next }));
+      };
     }
 
     function ensure(peerId: string) {
-      const existing = pcs.current.get(peerId);
-      if (existing) return existing;
-      const pc = new RTCPeerConnection({ iceServers: ICE });
-      pcs.current.set(peerId, pc);
-      if (pc.getTransceivers().length === 0) {
-        pc.addTransceiver("video", { direction: "sendrecv" });
-        pc.addTransceiver("audio", { direction: "sendrecv" });
+      const existing = slots.current.get(peerId);
+      if (existing) {
+        attachLocal(existing.pc);
+        return existing;
       }
-      attachLocal(pc);
+      const pc = new RTCPeerConnection(ICE);
+      const slot: PeerSlot = { pc, makingOffer: false, ignoreOffer: false };
+      slots.current.set(peerId, slot);
       pc.onicecandidate = (event) => {
         if (!event.candidate) return;
         void post(peerId, { candidate: event.candidate.toJSON() });
       };
       pc.ontrack = (event) => {
-        const incoming = event.streams[0] ?? new MediaStream([event.track]);
-        setRemoteStreams((prev) => ({ ...prev, [peerId]: incoming }));
-        event.track.onunmute = () => {
-          setRemoteStreams((current) => ({ ...current, [peerId]: incoming }));
-        };
+        const local = streamRef.current;
+        if (local && event.streams[0]?.id === local.id) return;
+        bindRemote(peerId, event.track);
       };
-      void offer(peerId, pc);
-      return pc;
+      pc.onnegotiationneeded = () => {
+        void (async () => {
+          if (closed || !isOfferer(peerId) || pc.signalingState !== "stable") return;
+          try {
+            slot.makingOffer = true;
+            attachLocal(pc);
+            await pc.setLocalDescription(await pc.createOffer());
+            const local = pc.localDescription;
+            if (local && !closed) {
+              await post(peerId, { description: { type: local.type, sdp: local.sdp } });
+            }
+          } catch {
+            /* glare */
+          } finally {
+            slot.makingOffer = false;
+          }
+        })();
+      };
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === "failed") {
+          pc.restartIce();
+        }
+      };
+      attachLocal(pc);
+      return slot;
     }
 
     async function take(signal: { from: string; description?: Description; candidate?: RTCIceCandidateInit | null }) {
-      if (!wanted.has(signal.from)) return;
-      const pc = ensure(signal.from);
-      if (signal.description) {
-        const offerCollision = signal.description.type === "offer" && pc.signalingState !== "stable";
-        const polite = (selfRef.current ?? "") < signal.from;
-        if (offerCollision && !polite) return;
-        if (offerCollision && polite) {
-          await Promise.all([
-            pc.setLocalDescription({ type: "rollback" }),
-            pc.setRemoteDescription(signal.description),
-          ]);
-        } else {
-          await pc.setRemoteDescription(signal.description);
-        }
-        const queued = pendingIce.current.get(signal.from) ?? [];
-        pendingIce.current.set(signal.from, []);
-        for (const candidate of queued) await pc.addIceCandidate(candidate);
-        if (signal.description.type === "offer") {
-          attachLocal(pc);
-          const answer = await pc.createAnswer();
-          await pc.setLocalDescription(answer);
-          const local = pc.localDescription;
-          if (local) await post(signal.from, { description: { type: local.type, sdp: local.sdp } });
-        }
-      }
-      if (signal.candidate) {
-        if (!pc.remoteDescription) {
+      if (!wanted.has(signal.from) || signal.from === selfRef.current) return;
+      const slot = ensure(signal.from);
+      const pc = slot.pc;
+      try {
+        if (signal.description) {
+          const offerCollision =
+            signal.description.type === "offer" && (slot.makingOffer || pc.signalingState !== "stable");
+          const polite = !isOfferer(signal.from);
+          slot.ignoreOffer = offerCollision && !polite;
+          if (slot.ignoreOffer) return;
+          if (offerCollision && polite) {
+            await Promise.all([
+              pc.setLocalDescription({ type: "rollback" }).catch(() => undefined),
+              pc.setRemoteDescription(signal.description),
+            ]);
+          } else {
+            await pc.setRemoteDescription(signal.description);
+          }
           const queued = pendingIce.current.get(signal.from) ?? [];
-          queued.push(signal.candidate);
-          pendingIce.current.set(signal.from, queued);
-        } else {
-          await pc.addIceCandidate(signal.candidate);
+          pendingIce.current.set(signal.from, []);
+          for (const candidate of queued) await pc.addIceCandidate(candidate).catch(() => undefined);
+          if (signal.description.type === "offer") {
+            attachLocal(pc);
+            await pc.setLocalDescription(await pc.createAnswer());
+            const local = pc.localDescription;
+            if (local) await post(signal.from, { description: { type: local.type, sdp: local.sdp } });
+          }
         }
+        if (signal.candidate) {
+          if (!pc.remoteDescription) {
+            const queued = pendingIce.current.get(signal.from) ?? [];
+            queued.push(signal.candidate);
+            pendingIce.current.set(signal.from, queued);
+          } else {
+            await pc.addIceCandidate(signal.candidate).catch(() => undefined);
+          }
+        }
+      } catch {
+        /* duplicate or stale signal */
       }
     }
 
     for (const peerId of wanted) ensure(peerId);
-    for (const [peerId, pc] of pcs.current) {
+    for (const [peerId, slot] of slots.current) {
       if (wanted.has(peerId)) continue;
-      pc.close();
-      pcs.current.delete(peerId);
+      slot.pc.close();
+      slots.current.delete(peerId);
       pendingIce.current.delete(peerId);
+      remoteMedia.current.delete(peerId);
       setRemoteStreams((prev) => {
         const next = { ...prev };
         delete next[peerId];
@@ -161,6 +196,7 @@ export function usePeerMedia(
     const stopSignals = onVideoSignal((signal) => {
       void take(signal).catch(() => undefined);
     });
+
     async function drain() {
       const token = getRoomToken(code);
       const res = await fetch(`/api/rooms/${encodeURIComponent(code)}/signals?poll=1`, {
@@ -168,20 +204,24 @@ export function usePeerMedia(
         cache: "no-store",
       });
       if (!res.ok) return;
-      const body = (await res.json()) as { signals?: Array<{ from: string; description?: Description; candidate?: RTCIceCandidateInit | null }> };
+      const body = (await res.json()) as {
+        signals?: Array<{ from: string; description?: Description; candidate?: RTCIceCandidateInit | null }>;
+      };
       for (const signal of body.signals ?? []) {
         await take(signal).catch(() => undefined);
       }
     }
+
     void drain();
     const retry = setInterval(() => {
       void drain().catch(() => undefined);
       for (const peerId of wanted) {
-        const pc = pcs.current.get(peerId);
-        if (!pc || pc.connectionState === "connected" || pc.connectionState === "connecting") continue;
-        void offer(peerId, pc);
+        const slot = slots.current.get(peerId);
+        if (!slot) continue;
+        const state = slot.pc.iceConnectionState;
+        if (state === "failed" || state === "disconnected") slot.pc.restartIce();
       }
-    }, 900);
+    }, 800);
 
     return () => {
       closed = true;
@@ -192,42 +232,25 @@ export function usePeerMedia(
 
   useEffect(() => {
     if (!localStream) return;
-    for (const [peerId, pc] of pcs.current) {
+    for (const slot of slots.current.values()) {
       for (const track of localStream.getTracks()) {
-        const sender = pc.getSenders().find((item) => item.track?.kind === track.kind);
+        const sender = slot.pc.getSenders().find((item) => item.track?.kind === track.kind);
         if (sender) {
           if (sender.track !== track) void sender.replaceTrack(track).catch(() => undefined);
         } else {
-          pc.addTrack(track, localStream);
+          slot.pc.addTrack(track, localStream);
         }
       }
-      if ((selfId ?? "") < peerId && pc.signalingState === "stable") {
-        void pc
-          .createOffer()
-          .then(async (description) => {
-            await pc.setLocalDescription(description);
-            const token = getRoomToken(code);
-            const local = pc.localDescription;
-            if (!local) return;
-            await fetch(`/api/rooms/${encodeURIComponent(code)}/signals`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                ...(token ? { Authorization: `Bearer ${token}` } : {}),
-              },
-              body: JSON.stringify({ to: peerId, description: { type: local.type, sdp: local.sdp } }),
-            });
-          })
-          .catch(() => undefined);
-      }
     }
-  }, [code, localStream, selfId]);
+  }, [localStream]);
 
   useEffect(() => {
-    const connections = pcs.current;
+    const connections = slots.current;
+    const remotes = remoteMedia.current;
     return () => {
-      for (const pc of connections.values()) pc.close();
+      for (const slot of connections.values()) slot.pc.close();
       connections.clear();
+      remotes.clear();
     };
   }, []);
 

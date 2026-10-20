@@ -34,17 +34,18 @@ export function PlayerSeat({
   onExpand?: () => void;
 }) {
   const reconnecting = !player.isConnected;
-  const stream = isYou ? localStream : remoteStream;
-  const liveVideo = Boolean(
-    stream?.getVideoTracks().some((track) => track.readyState === "live"),
-  );
+  const remote =
+    remoteStream && localStream && remoteStream.id === localStream.id ? null : remoteStream;
+  const stream = isYou ? localStream ?? null : remote ?? null;
+  const liveVideo = Boolean(stream?.getVideoTracks().some((track) => track.readyState !== "ended"));
 
   return (
-    <button
-      type="button"
+    <div
+      role={onExpand ? "button" : undefined}
+      tabIndex={onExpand ? 0 : undefined}
       onClick={onExpand}
       className={cn(
-        "relative text-left glass-card shadow-xl transition",
+        "relative cursor-pointer text-left glass-card shadow-xl transition",
         fitted
           ? "w-[112px] rounded-2xl sm:w-[140px] lg:w-[164px]"
           : compact
@@ -65,6 +66,7 @@ export function PlayerSeat({
           stream={stream ?? null}
           enabled={liveVideo}
           muted={Boolean(isYou)}
+          mirror={Boolean(isYou)}
           label={player.displayName}
         />
         {!liveVideo && (
@@ -140,6 +142,6 @@ export function PlayerSeat({
           </span>
         )}
       </div>
-    </button>
+    </div>
   );
 }
