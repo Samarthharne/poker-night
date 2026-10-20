@@ -95,6 +95,20 @@ export default function AdminRoomPage() {
       } else {
         const paused =
           commandName === "pause" ? true : commandName === "resume" ? false : Boolean(data.snapshot?.game?.paused);
+        if (commandName === "end" || commandName === "lobby") {
+          setRoom((current) =>
+            current
+              ? {
+                  ...current,
+                  paused: false,
+                  status: "lobby",
+                  phase: "lobby",
+                  handNumber: 0,
+                  lastAction: "Players returned to the waiting room",
+                }
+              : current,
+          );
+        }
         if (commandName === "pause" || commandName === "resume") {
           holdRef.current = {
             paused,

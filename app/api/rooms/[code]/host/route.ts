@@ -92,7 +92,8 @@ export async function POST(
         pauseGame(room, false);
         break;
       }
-      case "end": {
+      case "end":
+      case "lobby": {
         endGame(room);
         break;
       }
@@ -190,10 +191,6 @@ export async function POST(
           isReady: true,
           contributedThisHand: 0,
         });
-        break;
-      }
-      case "lobby": {
-        resetToLobby(room, true);
         break;
       }
       case "play-again":

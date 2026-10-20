@@ -263,9 +263,14 @@ export default function AdminDashboard() {
                         </Button>
                       )}
                       {room.status !== "lobby" && (
-                        <Button size="sm" variant="outline" disabled={pendingId === room.id} onClick={() => run(room.id, "lobby")}>
-                          Back to lobby
-                        </Button>
+                        <>
+                          <Button size="sm" variant="outline" disabled={pendingId === room.id} onClick={() => run(room.id, "end")}>
+                            End game
+                          </Button>
+                          <Button size="sm" variant="outline" disabled={pendingId === room.id} onClick={() => run(room.id, "lobby")}>
+                            Back to lobby
+                          </Button>
+                        </>
                       )}
                       <Button
                         size="sm"
