@@ -251,32 +251,20 @@ export default function AdminDashboard() {
                       <span className="text-sm text-gold">
                         {room.players}/{room.maxPlayers}
                       </span>
-                      {over ? (
-                        <Button
-                          size="sm"
-                          disabled={pendingId === room.id}
-                          onClick={() => runRoom(room.id, "restart")}
-                        >
-                          {pendingId === room.id ? "Restarting..." : `Restart ${room.name}`}
-                        </Button>
-                      ) : room.status === "lobby" ? (
+                      {room.status === "lobby" && (
                         <Button
                           size="sm"
                           disabled={pendingId === room.id}
                           onClick={() => runRoom(room.id, "start")}
                         >
-                          {pendingId === room.id ? "Starting..." : `Start ${room.name}`}
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={pendingId === room.id}
-                          onClick={() => runRoom(room.id, "restart")}
-                        >
-                          {pendingId === room.id ? "Restarting..." : `Restart ${room.name}`}
+                          {pendingId === room.id ? "Starting..." : "Start"}
                         </Button>
                       )}
+                      <Link href={`/admin/rooms/${room.id}`}>
+                        <Button size="sm" variant="outline">
+                          Manage room
+                        </Button>
+                      </Link>
                     </div>
                   </div>
                   {notice?.roomId === room.id && (
@@ -299,16 +287,19 @@ export default function AdminDashboard() {
           {rooms
             .filter((room) => room.players === 0 && room.connected === 0 && room.status !== "complete" && room.phase !== "complete")
             .map((room) => (
-              <Link
-                key={room.id}
-                href={`/admin/rooms/${room.id}`}
-                className="glass-card block rounded-2xl px-4 py-3"
-              >
-                <span className="font-semibold">{room.name}</span>
-                <span className="ml-2 text-xs uppercase text-gold">Room {room.roomCode}</span>
-                <span className="ml-2 text-xs uppercase text-white/45">{room.status}</span>
-                <span className="mt-1 block text-sm text-white/55">No one seated</span>
-              </Link>
+              <div key={room.id} className="glass-card flex flex-wrap items-center justify-between gap-3 rounded-2xl px-4 py-3">
+                <Link href={`/admin/rooms/${room.id}`} className="min-w-0">
+                  <span className="font-semibold">{room.name}</span>
+                  <span className="ml-2 text-xs uppercase text-gold">Room {room.roomCode}</span>
+                  <span className="ml-2 text-xs uppercase text-white/45">{room.status}</span>
+                  <span className="mt-1 block text-sm text-white/55">No one seated</span>
+                </Link>
+                <Link href={`/admin/rooms/${room.id}`}>
+                  <Button size="sm" variant="outline">
+                    Manage room
+                  </Button>
+                </Link>
+              </div>
             ))}
         </div>
       </section>

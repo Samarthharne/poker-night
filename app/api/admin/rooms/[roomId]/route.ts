@@ -28,6 +28,9 @@ export async function GET(
       inviteExpiresAt: room.inviteExpiresAt,
       invitationActive: Boolean(room.inviteHash) && !room.closedAt,
       phase: room.game?.phase ?? "lobby",
+      paused: Boolean(room.game?.paused || room.status === "paused"),
+      handNumber: room.game?.handNumber ?? 0,
+      lastAction: room.game?.lastAction ?? "",
       players: room.players
         .filter((p) => !p.removed)
         .map((p) => ({
@@ -35,7 +38,7 @@ export async function GET(
           displayName: p.displayName,
           seatNumber: p.seatNumber,
           chipBalance: p.chipBalance,
-          isConnected: p.isConnected,
+          isConnected: p.isConnected || Date.now() - p.lastSeenAt < 90_000,
         })),
     },
   });
