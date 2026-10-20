@@ -36,7 +36,7 @@ export function PlayerSeat({
   const reconnecting = !player.isConnected;
   const stream = isYou ? localStream : remoteStream;
   const liveVideo = Boolean(
-    stream?.getVideoTracks().some((track) => track.readyState !== "ended"),
+    stream?.getVideoTracks().some((track) => track.readyState === "live"),
   );
 
   return (

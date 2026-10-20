@@ -73,7 +73,10 @@ export async function joinRoom(
     body: JSON.stringify({ ...input, sessionId: getSessionId() }),
   });
   const data = await parse(res);
-  if (data.token) setRoomToken(code, data.token);
+  if (data.token) {
+    setRoomToken(code, data.token);
+    if (data.snapshot?.roomCode) setRoomToken(data.snapshot.roomCode, data.token);
+  }
   return data;
 }
 

@@ -7,8 +7,8 @@ import {
   resetToLobby,
   startGame,
 } from "@/lib/poker/game-engine";
-import { jsonError } from "@/lib/api/guard";
-import { requireAdmin } from "@/lib/admin/auth";
+import { jsonError, loadRoomPlayer, requireHost } from "@/lib/api/guard";
+import { readAdminFromRequest } from "@/lib/admin/auth";
 import { currentInviteToken, issueInvitation } from "@/lib/admin/invitations";
 import { ensureStore, getRoomByCode, getRoomById, getRoomByInviteToken, listRooms, saveRoomNow, snapshotFor } from "@/lib/store/rooms";
 import type { Room } from "@/types/room";
@@ -30,12 +30,18 @@ export async function POST(
   req: Request,
   ctx: { params: Promise<{ code: string }> },
 ) {
-  const admin = requireAdmin(req);
-  if (admin instanceof Response) return admin;
   const { code } = await ctx.params;
   await ensureStore(req);
   let room = getRoomById(code) ?? getRoomByCode(code) ?? getRoomByInviteToken(code);
   if (!room) return jsonError("Room not found.", 404);
+  const admin = readAdminFromRequest(req);
+  if (!admin) {
+    const loaded = await loadRoomPlayer(req, code);
+    if ("error" in loaded) return loaded.error;
+    const forbidden = requireHost(loaded.room, loaded.player);
+    if (forbidden) return forbidden;
+    room = loaded.room;
+  }
   const token = null;
 
   const body = (await req.json().catch(() => null)) as {
@@ -92,7 +98,7 @@ export async function POST(
         break;
       }
       case "unlock": {
-        if (room.status === "lobby") room.locked = false;
+        room.locked = false;
         break;
       }
       case "kick": {

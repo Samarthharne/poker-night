@@ -260,6 +260,7 @@ export function createEmptyRoom(input: {
   maxPlayers: number;
   startingChips: number;
   smallBlind: number;
+  turnSeconds?: number;
 }): Room {
   const code = newRoomCode();
   return {
@@ -271,7 +272,7 @@ export function createEmptyRoom(input: {
     startingChips: input.startingChips,
     smallBlind: input.smallBlind,
     bigBlind: input.smallBlind * 2,
-    turnSeconds: 30,
+    turnSeconds: input.turnSeconds && input.turnSeconds >= 10 ? Math.round(input.turnSeconds) : 30,
     status: "lobby",
     locked: false,
     createdAt: Date.now(),

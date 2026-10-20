@@ -31,8 +31,10 @@ export default function AdminDashboard() {
   const [blind, setBlind] = useState(25);
   const [maxPlayers, setMaxPlayers] = useState(6);
   const [hours, setHours] = useState(12);
+  const [turnSeconds, setTurnSeconds] = useState(30);
   const [link, setLink] = useState("");
   const [creating, setCreating] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
 
   async function load() {
     const res = await fetch("/api/admin/rooms", { cache: "no-store" });
@@ -70,6 +72,7 @@ export default function AdminDashboard() {
           smallBlind: blind,
           maxPlayers,
           expiresInHours: hours,
+          turnSeconds,
         }),
       });
       const data = (await res.json().catch(() => ({}))) as {
@@ -107,6 +110,29 @@ export default function AdminDashboard() {
       toast.error("Could not create the room");
     } finally {
       setCreating(false);
+    }
+  }
+
+  async function run(roomId: string, command: string, extra: Record<string, unknown> = {}) {
+    setPendingId(roomId);
+    try {
+      const res = await fetch(`/api/rooms/${roomId}/host`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        cache: "no-store",
+        body: JSON.stringify({ command, turnSeconds, ...extra }),
+      });
+      const data = (await res.json()) as { error?: string };
+      if (!res.ok) {
+        toast.error(data.error || "Could not update the table");
+        return;
+      }
+      toast.success(command === "start" ? "Game started" : command.replace("-", " "));
+      await load();
+    } catch {
+      toast.error("Could not reach the server.");
+    } finally {
+      setPendingId(null);
     }
   }
 
@@ -154,6 +180,17 @@ export default function AdminDashboard() {
           <div>
             <Label>Expires in hours</Label>
             <Input type="number" min={1} value={hours} onChange={(e) => setHours(Number(e.target.value))} />
+          </div>
+          <div className="sm:col-span-2">
+            <Label>Turn / bid time (seconds)</Label>
+            <Input
+              type="number"
+              min={10}
+              max={180}
+              value={turnSeconds}
+              onChange={(e) => setTurnSeconds(Number(e.target.value))}
+            />
+            <p className="mt-1 text-xs text-white/40">Time each player has to act. Default 30 seconds.</p>
           </div>
         </div>
         <p className="text-xs text-white/45">
@@ -205,10 +242,38 @@ export default function AdminDashboard() {
                         {room.playerNames.join(", ")} · {room.connected} connected
                       </span>
                     </Link>
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="text-sm text-gold">
                         {room.players}/{room.maxPlayers}
                       </span>
+                      {room.status === "lobby" && (
+                        <Button size="sm" disabled={pendingId === room.id} onClick={() => run(room.id, "start")}>
+                          Start game
+                        </Button>
+                      )}
+                      {(room.status === "playing" || room.phase === "preflop") && (
+                        <Button size="sm" variant="outline" disabled={pendingId === room.id} onClick={() => run(room.id, "pause")}>
+                          Pause
+                        </Button>
+                      )}
+                      {room.status === "paused" && (
+                        <Button size="sm" variant="outline" disabled={pendingId === room.id} onClick={() => run(room.id, "resume")}>
+                          Resume
+                        </Button>
+                      )}
+                      {room.status !== "lobby" && (
+                        <Button size="sm" variant="outline" disabled={pendingId === room.id} onClick={() => run(room.id, "lobby")}>
+                          Back to lobby
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={pendingId === room.id}
+                        onClick={() => run(room.id, room.locked ? "unlock" : "lock")}
+                      >
+                        {room.locked ? "Unlock" : "Lock"}
+                      </Button>
                       <Link href={`/admin/rooms/${room.id}`}>
                         <Button size="sm">Manage table</Button>
                       </Link>

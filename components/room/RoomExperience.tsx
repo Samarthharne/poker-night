@@ -44,12 +44,20 @@ export function RoomExperience({ code }: { code: string }) {
   const [accessError, setAccessError] = useState<string | null>(null);
   const [inviteChecked, setInviteChecked] = useState(false);
   const [roomName, setRoomName] = useState("");
+  const [isAdmin, setIsAdmin] = useState(false);
   const peerIds = useMemo(
     () => snapshot?.players.filter((player) => player.id !== snapshot.you?.id).map((player) => player.id) ?? [],
     [snapshot],
   );
   const remoteStreams = usePeerMedia(code, snapshot?.you?.id, peerIds, media.stream, joined);
   const cameraBooted = useRef(false);
+
+  useEffect(() => {
+    void fetch("/api/admin/status", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: { admin?: boolean }) => setIsAdmin(Boolean(data.admin)))
+      .catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!joined || cameraBooted.current || media.stream) return;
@@ -175,6 +183,7 @@ export function RoomExperience({ code }: { code: string }) {
 
   const you = snapshot.you;
   const isHost = Boolean(you?.isHost);
+  const canManage = isHost || isAdmin;
   const complete = snapshot.status === "complete" || snapshot.game?.phase === "complete";
 
   return (
@@ -220,6 +229,8 @@ export function RoomExperience({ code }: { code: string }) {
             localStream={media.stream}
             remoteStreams={remoteStreams}
             localId={you?.id}
+            isAdmin={isAdmin}
+            hostCode={code}
           />
         </div>
       ) : (
@@ -229,8 +240,8 @@ export function RoomExperience({ code }: { code: string }) {
               {snapshot.game?.lastAction}
             </p>
             <PokerTable snapshot={snapshot} localStream={media.stream} remoteStreams={remoteStreams} />
-            {isHost && (
-              <div className="flex shrink-0 justify-center px-3 pt-1">
+            {canManage && (
+              <div className="relative z-40 flex shrink-0 justify-center gap-2 px-3 pt-1">
                 <Button
                   size="sm"
                   variant="outline"
@@ -240,6 +251,16 @@ export function RoomExperience({ code }: { code: string }) {
                   }}
                 >
                   Back to lobby
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={async () => {
+                    const data = await sendHost(code, { command: snapshot.locked ? "unlock" : "lock" });
+                    if (data.snapshot) setSnapshot(data.snapshot);
+                  }}
+                >
+                  {snapshot.locked ? "Unlock" : "Lock"}
                 </Button>
               </div>
             )}
@@ -351,7 +372,7 @@ export function RoomExperience({ code }: { code: string }) {
             <Button className="w-full" variant="ghost" onClick={() => setSheet("players")}>
               Players
             </Button>
-            {isHost && (
+            {canManage && (
               <Button
                 className="w-full"
                 variant="outline"

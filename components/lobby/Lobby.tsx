@@ -16,22 +16,26 @@ export function Lobby({
   localStream,
   remoteStreams,
   localId,
+  isAdmin,
+  hostCode,
 }: {
   snapshot: RoomSnapshot;
   onUpdate: (s: RoomSnapshot) => void;
   localStream: MediaStream | null;
   remoteStreams?: Record<string, MediaStream>;
   localId?: string;
+  isAdmin?: boolean;
+  hostCode?: string;
 }) {
   const you = snapshot.you;
-  const isHost = Boolean(you?.isHost);
-  const canStart = snapshot.players.filter((p) => p.isConnected).length >= 2;
+  const isHost = Boolean(you?.isHost) || Boolean(isAdmin);
+  const canStart = snapshot.players.filter((p) => p.isConnected || p.chipBalance > 0).length >= 2;
   const [turnSeconds, setTurnSeconds] = useState(snapshot.turnSeconds || 30);
   const seats = Array.from({ length: Math.max(snapshot.maxPlayers, 6) }, (_, i) => i + 1);
 
   async function host(command: string, extra: Record<string, unknown> = {}) {
     try {
-      const data = await sendHost(snapshot.roomCode, { command, ...extra });
+      const data = await sendHost(hostCode ?? snapshot.roomCode, { command, ...extra });
       if (data.snapshot) onUpdate(data.snapshot);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not update room");
@@ -49,7 +53,7 @@ export function Lobby({
       </div>
 
       <div className="felt-table wood-rail mx-auto h-24 w-full max-w-xl shrink-0 rounded-[999px] sm:h-28" />
-      <div className="grid min-h-0 flex-1 grid-cols-3 content-start gap-2 overflow-y-auto px-1 pb-2">
+      <div className="grid max-h-[52vh] min-h-[220px] flex-1 grid-cols-2 content-start gap-2 overflow-y-scroll px-1 pb-8 sm:grid-cols-3">
         {seats.map((seat) => {
           const player = snapshot.players.find((item) => item.seatNumber === seat);
           if (!player) {
@@ -83,7 +87,17 @@ export function Lobby({
 
       {isHost ? (
         <div className="glass-card mx-auto w-full max-w-xl shrink-0 space-y-3 rounded-3xl p-3">
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="min-w-[140px]">
+              <Label>Turn / bid time (s)</Label>
+              <Input
+                type="number"
+                min={10}
+                max={180}
+                value={turnSeconds}
+                onChange={(e) => setTurnSeconds(Number(e.target.value))}
+              />
+            </div>
             <Button disabled={!canStart} onClick={() => host("start", { turnSeconds })}>
               Start Game
             </Button>

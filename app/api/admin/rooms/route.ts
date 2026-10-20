@@ -35,6 +35,7 @@ export async function POST(req: Request) {
       startingChips?: number;
       smallBlind?: number;
       expiresInHours?: number;
+      turnSeconds?: number;
     };
     const name = (body.name ?? "").trim();
     const maxPlayers = Number(body.maxPlayers);
@@ -55,7 +56,14 @@ export async function POST(req: Request) {
     const hours = Number(body.expiresInHours);
     const expiresAt =
       Number.isFinite(hours) && hours > 0 ? Date.now() + hours * 60 * 60 * 1000 : null;
-    const room = createEmptyRoom({ name, maxPlayers, startingChips, smallBlind });
+    const turnSeconds = Number(body.turnSeconds);
+    const room = createEmptyRoom({
+      name,
+      maxPlayers,
+      startingChips,
+      smallBlind,
+      turnSeconds: Number.isFinite(turnSeconds) ? turnSeconds : 30,
+    });
     room.expiresAt = expiresAt;
     room.hostId = "admin";
     const token = issueInvitation(room, expiresAt);

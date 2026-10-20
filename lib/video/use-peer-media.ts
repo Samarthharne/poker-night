@@ -9,6 +9,17 @@ type Description = { type: RTCSdpType; sdp?: string };
 const ICE = [
   { urls: "stun:stun.l.google.com:19302" },
   { urls: "stun:stun1.l.google.com:19302" },
+  { urls: "stun:stun.cloudflare.com:3478" },
+  {
+    urls: "turn:openrelay.metered.ca:80",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
+  {
+    urls: "turn:openrelay.metered.ca:443",
+    username: "openrelayproject",
+    credential: "openrelayproject",
+  },
 ];
 
 export function usePeerMedia(
@@ -77,21 +88,21 @@ export function usePeerMedia(
       if (existing) return existing;
       const pc = new RTCPeerConnection({ iceServers: ICE });
       pcs.current.set(peerId, pc);
+      if (pc.getTransceivers().length === 0) {
+        pc.addTransceiver("video", { direction: "sendrecv" });
+        pc.addTransceiver("audio", { direction: "sendrecv" });
+      }
       attachLocal(pc);
       pc.onicecandidate = (event) => {
         if (!event.candidate) return;
         void post(peerId, { candidate: event.candidate.toJSON() });
       };
       pc.ontrack = (event) => {
-        setRemoteStreams((prev) => {
-          const stream = prev[peerId] ?? new MediaStream();
-          const incoming = event.streams[0]?.getTracks() ?? [event.track];
-          for (const track of incoming) {
-            if (!stream.getTracks().includes(track)) stream.addTrack(track);
-            track.onunmute = () => setRemoteStreams((current) => ({ ...current }));
-          }
-          return { ...prev, [peerId]: stream };
-        });
+        const incoming = event.streams[0] ?? new MediaStream([event.track]);
+        setRemoteStreams((prev) => ({ ...prev, [peerId]: incoming }));
+        event.track.onunmute = () => {
+          setRemoteStreams((current) => ({ ...current, [peerId]: incoming }));
+        };
       };
       void offer(peerId, pc);
       return pc;
@@ -119,8 +130,8 @@ export function usePeerMedia(
           attachLocal(pc);
           const answer = await pc.createAnswer();
           await pc.setLocalDescription(answer);
-          const answer = pc.localDescription;
-          if (answer) await post(signal.from, { description: { type: answer.type, sdp: answer.sdp } });
+          const local = pc.localDescription;
+          if (local) await post(signal.from, { description: { type: local.type, sdp: local.sdp } });
         }
       }
       if (signal.candidate) {
