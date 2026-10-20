@@ -39,6 +39,7 @@ export type Room = {
   startingChips: number;
   smallBlind: number;
   bigBlind: number;
+  turnSeconds: number;
   status: RoomStatus;
   locked: boolean;
   createdAt: number;
@@ -75,6 +76,7 @@ export type RoomSnapshot = {
   startingChips: number;
   smallBlind: number;
   bigBlind: number;
+  turnSeconds: number;
   status: RoomStatus;
   locked: boolean;
   createdAt: number;

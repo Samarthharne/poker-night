@@ -11,6 +11,7 @@ export function testRoom(names: string[] = ["Ava", "Ben"], chips = 1000): Room {
     startingChips: chips,
     smallBlind: 10,
     bigBlind: 20,
+    turnSeconds: 30,
     status: "lobby",
     locked: false,
     createdAt: Date.now(),

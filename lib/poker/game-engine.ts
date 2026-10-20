@@ -7,7 +7,7 @@ import { bestOfSeven, compareHands } from "./evaluator";
 import { buildSidePots, totalPot } from "./pot";
 import { canAct, legalActions, toCall } from "./betting";
 
-const TURN_SECONDS = 20;
+const TURN_SECONDS = 30;
 const SHOWDOWN_HOLD_MS = 4200;
 
 export function seatedWithChips(room: Room) {
@@ -55,7 +55,7 @@ export function startGame(room: Room) {
     currentBet: 0,
     lastRaiseSize: room.bigBlind,
     turnStartedAt: Date.now(),
-    turnSeconds: TURN_SECONDS,
+    turnSeconds: room.turnSeconds || TURN_SECONDS,
     winners: [],
     paused: false,
   };

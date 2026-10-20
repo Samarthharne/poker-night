@@ -46,6 +46,7 @@ export async function POST(
     smallBlind?: number;
     maxPlayers?: number;
     locked?: boolean;
+    turnSeconds?: number;
   };
 
   try {
@@ -64,6 +65,13 @@ export async function POST(
         }
         const restoreStacks = room.status === "complete" || room.game?.phase === "complete";
         if (restoreStacks) resetToLobby(room, true);
+        if (body.turnSeconds) {
+          const seconds = Number(body.turnSeconds);
+          if (Number.isFinite(seconds) && seconds >= 10 && seconds <= 180) {
+            room.turnSeconds = Math.round(seconds);
+          }
+        }
+        if (!room.turnSeconds) room.turnSeconds = 30;
         startGame(room);
         break;
       }
@@ -117,6 +125,13 @@ export async function POST(
           if (![2, 4, 6, 8, 9].includes(max)) return jsonError("Invalid table size.");
           if (max < room.players.length) return jsonError("Too many seated players.");
           room.maxPlayers = max;
+        }
+        if (body.turnSeconds) {
+          const seconds = Number(body.turnSeconds);
+          if (!Number.isFinite(seconds) || seconds < 10 || seconds > 180) {
+            return jsonError("Turn time must be between 10 and 180 seconds.");
+          }
+          room.turnSeconds = Math.round(seconds);
         }
         break;
       }

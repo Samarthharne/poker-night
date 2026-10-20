@@ -59,7 +59,7 @@ export function BettingControls({
 
   if (snapshot.game.phase === "showdown") {
     return (
-      <div className="safe-bottom border-t border-white/10 bg-[#0c0a0d]/95 px-4 py-3 text-center">
+      <div className="safe-bottom relative z-40 border-t border-white/10 bg-[#0c0a0d]/95 px-4 py-3 text-center">
         <p className="font-display text-lg text-gold-bright">
           {snapshot.game.lastAction ?? "Showdown"}
         </p>
@@ -71,7 +71,7 @@ export function BettingControls({
   if (!yours) {
     const current = snapshot.players.find((p) => p.seatNumber === snapshot.game?.currentSeat);
     return (
-      <div className="safe-bottom border-t border-white/10 bg-[#0c0a0d]/95 px-4 py-3 text-center">
+      <div className="safe-bottom relative z-40 border-t border-white/10 bg-[#0c0a0d]/95 px-4 py-3 text-center">
         <p className="text-sm text-white/70">
           {current ? `Waiting on ${current.displayName}` : "Waiting..."}
         </p>
@@ -83,7 +83,7 @@ export function BettingControls({
   }
 
   return (
-    <div className="safe-bottom shrink-0 border-t border-gold/20 bg-[#120c10]/95 px-3 py-2 sm:px-5">
+    <div className="safe-bottom relative z-40 shrink-0 border-t border-gold/20 bg-[#120c10]/95 px-3 py-2 sm:px-5">
       <div className="mx-auto flex max-w-3xl flex-col gap-2">
         <div className="flex items-center justify-between">
           <p className="font-display text-base tracking-wide text-gold-bright sm:text-lg">Your turn</p>

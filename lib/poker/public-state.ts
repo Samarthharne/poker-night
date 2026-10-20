@@ -19,6 +19,7 @@ export function toSnapshot(
     startingChips: room.startingChips,
     smallBlind: room.smallBlind,
     bigBlind: room.bigBlind,
+    turnSeconds: room.turnSeconds || 30,
     status: room.status,
     locked: room.locked,
     createdAt: room.createdAt,

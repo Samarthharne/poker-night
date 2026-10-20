@@ -229,7 +229,21 @@ export function RoomExperience({ code }: { code: string }) {
               {snapshot.game?.lastAction}
             </p>
             <PokerTable snapshot={snapshot} localStream={media.stream} remoteStreams={remoteStreams} />
-            <div className="flex shrink-0 justify-center gap-2 px-3 py-1">
+            {isHost && (
+              <div className="flex shrink-0 justify-center px-3 pt-1">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={async () => {
+                    const data = await sendHost(code, { command: "lobby" });
+                    if (data.snapshot) setSnapshot(data.snapshot);
+                  }}
+                >
+                  Back to lobby
+                </Button>
+              </div>
+            )}
+            <div className="relative z-40 flex shrink-0 justify-center gap-2 px-3 py-1">
               <IconToggle
                 on={media.cameraEnabled}
                 onClick={async () => {
@@ -337,6 +351,19 @@ export function RoomExperience({ code }: { code: string }) {
             <Button className="w-full" variant="ghost" onClick={() => setSheet("players")}>
               Players
             </Button>
+            {isHost && (
+              <Button
+                className="w-full"
+                variant="outline"
+                onClick={async () => {
+                  const data = await sendHost(code, { command: "lobby" });
+                  if (data.snapshot) setSnapshot(data.snapshot);
+                  setSheet(null);
+                }}
+              >
+                Back to lobby
+              </Button>
+            )}
             <Button className="w-full" variant="danger" onClick={() => setLeaveOpen(true)}>
               <LogOut className="h-4 w-4" /> Leave Room
             </Button>

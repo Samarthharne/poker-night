@@ -37,6 +37,7 @@ export default function AdminRoomPage() {
   const [room, setRoom] = useState<RoomDetail | null>(null);
   const [link, setLink] = useState("");
   const [amounts, setAmounts] = useState<Record<string, number>>({});
+  const [turnSeconds, setTurnSeconds] = useState(30);
   const [message, setMessage] = useState("");
   const [pending, setPending] = useState<string | null>(null);
 
@@ -131,7 +132,7 @@ export default function AdminRoomPage() {
         <h2 className="font-display text-2xl">Manage game</h2>
         <p className="mt-1 text-sm text-white/50">These controls apply to this room only. Players see the change on their table.</p>
         <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
-          <Button disabled={busy || !lobby || room.players.length < 2} onClick={() => command("start")}>
+          <Button disabled={busy || !lobby || room.players.length < 2} onClick={() => command("start", { turnSeconds })}>
             {pending === "start" ? "Starting..." : "Start"}
           </Button>
           <Button variant="outline" disabled={busy || !playing || room.paused} onClick={() => command("pause")}>
@@ -149,6 +150,20 @@ export default function AdminRoomPage() {
           <Button variant="ghost" disabled={busy} onClick={() => command(room.locked ? "unlock" : "lock")}>
             {room.locked ? "Unlock" : "Lock"}
           </Button>
+          <Button variant="outline" disabled={busy || lobby} onClick={() => command("lobby")}>
+            {pending === "lobby" ? "Returning..." : "Back to lobby"}
+          </Button>
+        </div>
+        <div className="mt-4 max-w-[180px]">
+          <p className="text-xs uppercase tracking-wider text-white/45">Turn time (seconds)</p>
+          <Input
+            type="number"
+            min={10}
+            max={180}
+            value={turnSeconds}
+            onChange={(e) => setTurnSeconds(Number(e.target.value))}
+          />
+          <p className="mt-1 text-xs text-white/40">Used when you press Start. Default 30.</p>
         </div>
       </section>
 

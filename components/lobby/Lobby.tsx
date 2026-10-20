@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +8,7 @@ import { Label } from "@/components/ui/input";
 import { sendHost } from "@/lib/client/api";
 import { formatChips, initials } from "@/lib/utils";
 import type { RoomSnapshot } from "@/types/room";
-import { SeatRing } from "@/components/poker/SeatRing";
+import { PlayerSeat } from "@/components/poker/PlayerSeat";
 
 export function Lobby({
   snapshot,
@@ -25,6 +26,8 @@ export function Lobby({
   const you = snapshot.you;
   const isHost = Boolean(you?.isHost);
   const canStart = snapshot.players.filter((p) => p.isConnected).length >= 2;
+  const [turnSeconds, setTurnSeconds] = useState(snapshot.turnSeconds || 30);
+  const seats = Array.from({ length: Math.max(snapshot.maxPlayers, 6) }, (_, i) => i + 1);
 
   async function host(command: string, extra: Record<string, unknown> = {}) {
     try {
@@ -45,27 +48,43 @@ export function Lobby({
         </p>
       </div>
 
-      <div className="relative mx-auto flex min-h-0 w-full flex-1 items-center justify-center [container-type:size]">
-        <div
-          className="felt-table wood-rail relative rounded-[999px]"
-          style={{ width: "min(96cqw, calc(78cqh * 16 / 9))", aspectRatio: "16 / 9" }}
-        >
-          <SeatRing
-            maxPlayers={snapshot.maxPlayers}
-            players={snapshot.players}
-            youId={localId}
-            localStream={localStream}
-            remoteStreams={remoteStreams}
-            canKick={isHost}
-            onKick={(playerId) => void host("kick", { playerId })}
-          />
-        </div>
+      <div className="felt-table wood-rail mx-auto h-24 w-full max-w-xl shrink-0 rounded-[999px] sm:h-28" />
+      <div className="grid min-h-0 flex-1 grid-cols-3 content-start gap-2 overflow-y-auto px-1 pb-2">
+        {seats.map((seat) => {
+          const player = snapshot.players.find((item) => item.seatNumber === seat);
+          if (!player) {
+            return (
+              <div
+                key={seat}
+                className="flex min-h-[110px] items-center justify-center rounded-2xl border border-dashed border-white/20 bg-black/25 text-center text-xs text-white/40"
+              >
+                Seat {seat}
+                <span className="ml-1 block sm:inline">Empty</span>
+              </div>
+            );
+          }
+          return (
+            <div key={player.id} className="flex justify-center">
+              <PlayerSeat
+                player={player}
+                dealerSeat={null}
+                smallBlindSeat={null}
+                bigBlindSeat={null}
+                isTurn={false}
+                compact
+                localStream={player.id === localId ? localStream : null}
+                remoteStream={remoteStreams?.[player.id] ?? null}
+                isYou={player.id === localId}
+              />
+            </div>
+          );
+        })}
       </div>
 
       {isHost ? (
         <div className="glass-card mx-auto w-full max-w-xl shrink-0 space-y-3 rounded-3xl p-3">
           <div className="flex flex-wrap gap-2">
-            <Button disabled={!canStart} onClick={() => host("start")}>
+            <Button disabled={!canStart} onClick={() => host("start", { turnSeconds })}>
               Start Game
             </Button>
             {process.env.NODE_ENV !== "production" && (
@@ -101,7 +120,7 @@ function HostSettings({
 }) {
   return (
     <form
-      className="grid gap-3 sm:grid-cols-3"
+      className="grid gap-3 sm:grid-cols-2"
       onSubmit={(e) => {
         e.preventDefault();
         const form = new FormData(e.currentTarget);
@@ -109,6 +128,7 @@ function HostSettings({
           startingChips: Number(form.get("startingChips")),
           smallBlind: Number(form.get("smallBlind")),
           maxPlayers: Number(form.get("maxPlayers")),
+          turnSeconds: Number(form.get("turnSeconds")),
         });
       }}
     >
@@ -134,11 +154,15 @@ function HostSettings({
           ))}
         </select>
       </div>
-      <div className="sm:col-span-3">
+      <div>
+        <Label>Turn time (seconds)</Label>
+        <Input name="turnSeconds" type="number" min={10} max={180} defaultValue={snapshot.turnSeconds || 30} />
+      </div>
+      <div className="sm:col-span-2">
         <Button type="submit" variant="ghost" size="sm">
           Save settings
         </Button>
-        <span className="ml-2 text-xs text-white/40">Big blind stays 2× small blind · 🪙 {formatChips(snapshot.startingChips)}</span>
+        <span className="ml-2 text-xs text-white/40">Big blind stays 2× small blind · default turn 30s</span>
       </div>
     </form>
   );
