@@ -37,7 +37,17 @@ export function useRoomSync(code: string, enabled: boolean) {
   const apply = useCallback((next: RoomSnapshot) => {
     setSnapshot((prev) => {
       const incoming = prev?.you && !next.you ? { ...next, you: prev.you } : next;
-      if (incoming.status === "lobby" || incoming.status === "closed") {
+      if ((prev?.generation ?? 0) > (incoming.generation ?? 0)) {
+        return prev;
+      }
+      if (
+        incoming.status === "lobby" ||
+        incoming.status === "closed" ||
+        !incoming.game
+      ) {
+        return incoming;
+      }
+      if ((incoming.generation ?? 0) > (prev?.generation ?? 0)) {
         return incoming;
       }
       const prevScore = progress(prev);

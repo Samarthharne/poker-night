@@ -45,6 +45,7 @@ export type Room = {
   locked: boolean;
   createdAt: number;
   updatedAt: number;
+  generation: number;
   expiresAt: number | null;
   closedAt: number | null;
   inviteHash: string;
@@ -81,6 +82,7 @@ export type RoomSnapshot = {
   status: RoomStatus;
   locked: boolean;
   createdAt: number;
+  generation?: number;
   players: PublicPlayer[];
   game: PublicGameState | null;
   messages: ChatMessage[];

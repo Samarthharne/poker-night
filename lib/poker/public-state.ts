@@ -20,9 +20,10 @@ export function toSnapshot(
     smallBlind: room.smallBlind,
     bigBlind: room.bigBlind,
     turnSeconds: room.turnSeconds || 30,
-    status: room.status,
+    status: room.game ? room.status : "lobby",
     locked: room.locked,
     createdAt: room.createdAt,
+    generation: room.generation ?? 0,
     players: room.players
       .filter((p) => !p.removed)
       .map((p) => publicPlayer(p, viewerId, showdown)),

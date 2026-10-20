@@ -281,6 +281,7 @@ export function createEmptyRoom(input: {
     locked: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    generation: 0,
     expiresAt: null,
     closedAt: null,
     inviteHash: "",

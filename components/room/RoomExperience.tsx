@@ -231,9 +231,9 @@ export function RoomExperience({ code }: { code: string }) {
         </div>
       </header>
 
-      {complete ? (
+      {complete && snapshot.game ? (
         <GameComplete snapshot={snapshot} />
-      ) : snapshot.status === "lobby" ? (
+      ) : snapshot.status === "lobby" || !snapshot.game ? (
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <Lobby
             snapshot={snapshot}

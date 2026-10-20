@@ -16,6 +16,7 @@ export function testRoom(names: string[] = ["Ava", "Ben"], chips = 1000): Room {
     locked: false,
     createdAt: Date.now(),
     updatedAt: Date.now(),
+    generation: 0,
     expiresAt: null,
     closedAt: null,
     inviteHash: "",

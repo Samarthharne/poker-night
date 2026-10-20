@@ -208,14 +208,16 @@ function gameRank(room: Room) {
 }
 
 function pickLive(left: Room, right: Room) {
+  const leftGen = left.generation ?? 0;
+  const rightGen = right.generation ?? 0;
+  if (leftGen !== rightGen) return leftGen > rightGen ? left : right;
   const newer = left.updatedAt >= right.updatedAt ? left : right;
   const older = newer === left ? right : left;
-  if (
-    newer.updatedAt >= older.updatedAt &&
-    (newer.status === "lobby" || newer.status === "closed") &&
-    !newer.game
-  ) {
+  if ((newer.status === "lobby" || newer.status === "closed") && !newer.game) {
     return newer;
+  }
+  if ((older.status === "lobby" || older.status === "closed") && !older.game && newer.game) {
+    return older;
   }
   const leftRank = gameRank(left);
   const rightRank = gameRank(right);
@@ -238,6 +240,7 @@ export function mergeRoomPair(left: Room, right: Room): Room {
   const status = statusFromGame({ ...live, game: live.game });
   return {
     ...newer,
+    generation: Math.max(left.generation ?? 0, right.generation ?? 0),
     status,
     locked: status === "playing" || status === "paused" ? live.locked : newer.locked,
     game: live.game,

@@ -40,6 +40,7 @@ export function startGame(room: Room) {
   if (seated.length < 2) {
     throw new Error("Need at least 2 players with chips to start.");
   }
+  room.generation = (room.generation ?? 0) + 1;
   room.status = "playing";
   room.game = {
     handNumber: 0,
@@ -534,6 +535,7 @@ export function endGame(room: Room) {
 }
 
 export function resetToLobby(room: Room, resetChips: boolean) {
+  room.generation = (room.generation ?? 0) + 1;
   room.status = "lobby";
   room.locked = false;
   room.game = null;
