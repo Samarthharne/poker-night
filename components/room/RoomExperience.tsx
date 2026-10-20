@@ -270,12 +270,25 @@ export function RoomExperience({ code }: { code: string }) {
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <p className="shrink-0 truncate px-3 pt-1 text-center text-xs text-gold/80 sm:text-sm">
-              {snapshot.game?.lastAction}
+              {snapshot.game?.paused || snapshot.status === "paused"
+                ? "Game paused"
+                : snapshot.game?.lastAction}
             </p>
             <PokerTable snapshot={snapshot} localStream={media.stream} remoteStreams={remoteStreams} />
             <div className="relative z-40 flex shrink-0 justify-center gap-2 px-3 pt-1">
               <Button size="sm" variant="outline" onClick={goToLobby}>
                 Back to lobby
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={async () => {
+                  const paused = snapshot.game?.paused || snapshot.status === "paused";
+                  const data = await sendHost(code, { command: paused ? "resume" : "pause" });
+                  if (data.snapshot) setSnapshot({ ...data.snapshot, you: data.snapshot.you ?? snapshot.you });
+                }}
+              >
+                {snapshot.game?.paused || snapshot.status === "paused" ? "Resume" : "Pause"}
               </Button>
               {canManage && (
                 <Button
@@ -530,7 +543,14 @@ function GameInfo({ snapshot }: { snapshot: RoomSnapshot }) {
       <Row label="Blinds" value={`${snapshot.smallBlind} / ${snapshot.bigBlind}`} />
       <Row label="Pot" value={formatChips(snapshot.game?.pot ?? 0)} />
       <Row label="Hand" value={`#${snapshot.game?.handNumber ?? 0}`} />
-      <Row label="Phase" value={snapshot.game?.phase ?? "lobby"} />
+      <Row
+        label="Phase"
+        value={
+          snapshot.game?.paused || snapshot.status === "paused"
+            ? "paused"
+            : snapshot.game?.phase ?? "lobby"
+        }
+      />
       <Row label="Starting chips" value={formatChips(snapshot.startingChips)} />
     </div>
   );

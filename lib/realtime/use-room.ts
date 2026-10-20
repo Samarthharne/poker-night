@@ -16,9 +16,8 @@ export function useRoomSync(code: string, enabled: boolean) {
       if (
         prev?.game &&
         incoming.game &&
-        prev.status === "playing" &&
-        incoming.status === "playing" &&
-        (incoming.game.actionSeq ?? 0) < (prev.game.actionSeq ?? 0)
+        (incoming.game.actionSeq ?? 0) < (prev.game.actionSeq ?? 0) &&
+        incoming.status !== "lobby"
       ) {
         return prev;
       }

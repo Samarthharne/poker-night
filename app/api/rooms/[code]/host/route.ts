@@ -49,7 +49,7 @@ export async function POST(
   if (!admin) {
     const loaded = await loadRoomPlayer(req, code);
     if ("error" in loaded) return loaded.error;
-    const openCommands = new Set(["lobby", "start", "lock", "unlock"]);
+    const openCommands = new Set(["lobby", "start", "lock", "unlock", "pause", "resume"]);
     if (!openCommands.has(body?.command ?? "")) {
       const forbidden = requireHost(loaded.room, loaded.player);
       if (forbidden) return forbidden;

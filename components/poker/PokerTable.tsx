@@ -60,7 +60,11 @@ export function PokerTable({
           dealerSeat={snapshot.game?.dealerSeat ?? null}
           smallBlindSeat={sb}
           bigBlindSeat={bb}
-          currentSeat={snapshot.game?.currentSeat ?? null}
+          currentSeat={
+            snapshot.game?.paused || snapshot.status === "paused"
+              ? null
+              : snapshot.game?.currentSeat ?? null
+          }
           localStream={localStream}
           remoteStreams={remoteStreams}
           showCardsFor={winnerIds}

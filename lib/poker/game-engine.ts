@@ -503,8 +503,11 @@ export function continueAfterShowdown(room: Room) {
 
 export function pauseGame(room: Room, paused: boolean) {
   if (!room.game) throw new Error("Start the game before pause or resume.");
+  if (room.game.phase === "complete") throw new Error("The game is already over.");
   room.game.paused = paused;
   room.status = paused ? "paused" : "playing";
+  room.game.actionSeq = (room.game.actionSeq ?? 0) + 1;
+  room.game.lastAction = paused ? "Game paused" : "Game resumed";
   if (!paused) room.game.turnStartedAt = Date.now();
 }
 

@@ -61,6 +61,15 @@ export function BettingControls({
     return null;
   }
 
+  if (snapshot.game.paused || snapshot.status === "paused") {
+    return (
+      <div className="safe-bottom relative z-40 border-t border-amber-400/30 bg-[#0c0a0d]/95 px-4 py-3 text-center">
+        <p className="font-display text-lg text-amber-200">Game paused</p>
+        <p className="text-xs text-white/50">Actions are frozen until the game is resumed.</p>
+      </div>
+    );
+  }
+
   if (snapshot.game.phase === "showdown") {
     return (
       <div className="safe-bottom relative z-40 border-t border-white/10 bg-[#0c0a0d]/95 px-4 py-3 text-center">

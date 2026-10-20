@@ -19,6 +19,7 @@ type Summary = {
   createdAt: number;
   invitationActive: boolean;
   phase: string;
+  paused?: boolean;
   playerNames: string[];
 };
 
@@ -251,12 +252,12 @@ export default function AdminDashboard() {
                           Start game
                         </Button>
                       )}
-                      {(room.status === "playing" || room.phase === "preflop") && (
+                      {(room.status === "playing" || room.phase === "preflop") && !room.paused && room.status !== "paused" && (
                         <Button size="sm" variant="outline" disabled={pendingId === room.id} onClick={() => run(room.id, "pause")}>
                           Pause
                         </Button>
                       )}
-                      {room.status === "paused" && (
+                      {(room.status === "paused" || room.paused) && (
                         <Button size="sm" variant="outline" disabled={pendingId === room.id} onClick={() => run(room.id, "resume")}>
                           Resume
                         </Button>
