@@ -279,29 +279,6 @@ export function RoomExperience({ code }: { code: string }) {
               <Button size="sm" variant="outline" onClick={goToLobby}>
                 Back to lobby
               </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={async () => {
-                  const paused = snapshot.game?.paused || snapshot.status === "paused";
-                  const data = await sendHost(code, { command: paused ? "resume" : "pause" });
-                  if (data.snapshot) setSnapshot({ ...data.snapshot, you: data.snapshot.you ?? snapshot.you });
-                }}
-              >
-                {snapshot.game?.paused || snapshot.status === "paused" ? "Resume" : "Pause"}
-              </Button>
-              {canManage && (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={async () => {
-                    const data = await sendHost(code, { command: snapshot.locked ? "unlock" : "lock" });
-                    if (data.snapshot) setSnapshot(data.snapshot);
-                  }}
-                >
-                  {snapshot.locked ? "Unlock" : "Lock"}
-                </Button>
-              )}
             </div>
             <div className="relative z-40 flex shrink-0 justify-center gap-2 px-3 py-1">
               <IconToggle
