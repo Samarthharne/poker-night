@@ -132,20 +132,6 @@ export function RoomExperience({ code }: { code: string }) {
     await copyInvite();
   }
 
-  async function goToLobby() {
-    if (snapshot?.status === "lobby") {
-      toast.message("You are already in the waiting room.");
-      return;
-    }
-    try {
-      const data = await sendHost(code, { command: "lobby" });
-      if (data.snapshot) setSnapshot(data.snapshot);
-      setSheet(null);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Could not return to lobby");
-    }
-  }
-
   async function confirmLeave() {
     try {
       await leaveRoom(code);
@@ -213,7 +199,6 @@ export function RoomExperience({ code }: { code: string }) {
 
   const you = snapshot.you;
   const isHost = Boolean(you?.isHost);
-  const canManage = isHost || isAdmin;
   const complete = snapshot.status === "complete" || snapshot.game?.phase === "complete";
 
   return (
@@ -227,9 +212,6 @@ export function RoomExperience({ code }: { code: string }) {
         </div>
         <div className="hidden items-center gap-2 md:flex">
           <span className="text-xs text-emerald-400">● Connected</span>
-          <Button size="sm" variant="outline" onClick={goToLobby}>
-            Back to lobby
-          </Button>
           <Button size="sm" variant="outline" onClick={() => setSheet("invite")}>
             Invite
           </Button>
@@ -238,9 +220,6 @@ export function RoomExperience({ code }: { code: string }) {
           </Button>
         </div>
         <div className="flex items-center gap-2 md:hidden">
-          <Button size="sm" variant="outline" onClick={goToLobby}>
-            Back to lobby
-          </Button>
           <button
             type="button"
             className="grid h-11 w-11 place-items-center rounded-xl bg-white/5"
@@ -275,11 +254,6 @@ export function RoomExperience({ code }: { code: string }) {
                 : snapshot.game?.lastAction}
             </p>
             <PokerTable snapshot={snapshot} localStream={media.stream} remoteStreams={remoteStreams} />
-            <div className="relative z-40 flex shrink-0 justify-center gap-2 px-3 pt-1">
-              <Button size="sm" variant="outline" onClick={goToLobby}>
-                Back to lobby
-              </Button>
-            </div>
             <div className="relative z-40 flex shrink-0 justify-center gap-2 px-3 py-1">
               <IconToggle
                 on={media.cameraEnabled}
@@ -387,9 +361,6 @@ export function RoomExperience({ code }: { code: string }) {
             </Button>
             <Button className="w-full" variant="ghost" onClick={() => setSheet("players")}>
               Players
-            </Button>
-            <Button className="w-full" variant="outline" onClick={goToLobby}>
-              Back to lobby
             </Button>
             <Button className="w-full" variant="danger" onClick={() => setLeaveOpen(true)}>
               <LogOut className="h-4 w-4" /> Leave Room

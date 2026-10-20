@@ -105,9 +105,11 @@ export function Lobby({
                 Add practice seat
               </Button>
             )}
-            <Button variant="outline" onClick={() => host(snapshot.locked ? "unlock" : "lock")}>
-              {snapshot.locked ? "Unlock room" : "Lock room"}
-            </Button>
+            {isHost && (
+              <Button variant="outline" onClick={() => host(snapshot.locked ? "unlock" : "lock")}>
+                {snapshot.locked ? "Unlock room" : "Lock room"}
+              </Button>
+            )}
             {process.env.NODE_ENV !== "production" && (
               <Button variant="ghost" onClick={() => host("add-bot")}>
                 Add practice player
