@@ -7,5 +7,10 @@
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Cache-Control = "no-cache, no-store, must-revalidate"
+
 # Invitation links only work if Visitor access is Public.
 # Netlify UI: Project configuration → General → Visitor access → Public.

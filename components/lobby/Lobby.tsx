@@ -64,7 +64,7 @@ export function Lobby({
       </div>
 
       <p className="shrink-0 pb-4 text-center text-sm text-white/55">
-        Waiting for the administrator to start the game.
+        Waiting for the administrator to start the game from the dashboard.
       </p>
     </div>
   );
