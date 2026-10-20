@@ -13,11 +13,13 @@ export function useRoomSync(code: string, enabled: boolean) {
   const apply = useCallback((next: RoomSnapshot) => {
     setSnapshot((prev) => {
       const incoming = prev?.you && !next.you ? { ...next, you: prev.you } : next;
+      if (incoming.status === "lobby" || incoming.status === "closed") {
+        return incoming;
+      }
       if (
         prev?.game &&
         incoming.game &&
-        (incoming.game.actionSeq ?? 0) < (prev.game.actionSeq ?? 0) &&
-        incoming.status !== "lobby"
+        (incoming.game.actionSeq ?? 0) < (prev.game.actionSeq ?? 0)
       ) {
         return prev;
       }

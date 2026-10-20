@@ -192,10 +192,19 @@ function gameRank(room: Room) {
 }
 
 function pickLive(left: Room, right: Room) {
+  const newer = left.updatedAt >= right.updatedAt ? left : right;
+  const older = newer === left ? right : left;
+  if (
+    newer.updatedAt >= older.updatedAt &&
+    (newer.status === "lobby" || newer.status === "closed") &&
+    !newer.game
+  ) {
+    return newer;
+  }
   const leftRank = gameRank(left);
   const rightRank = gameRank(right);
   if (leftRank !== rightRank) return leftRank > rightRank ? left : right;
-  return left.updatedAt >= right.updatedAt ? left : right;
+  return newer;
 }
 
 function statusFromGame(room: Room): Room["status"] {

@@ -512,13 +512,7 @@ export function pauseGame(room: Room, paused: boolean) {
 }
 
 export function endGame(room: Room) {
-  room.status = "complete";
-  if (room.game) {
-    room.game.phase = "complete";
-    room.game.currentSeat = null;
-    room.game.paused = true;
-    room.game.lastAction = "Host ended the game";
-  }
+  resetToLobby(room, true);
 }
 
 export function resetToLobby(room: Room, resetChips: boolean) {
