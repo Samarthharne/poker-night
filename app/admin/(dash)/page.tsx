@@ -22,8 +22,6 @@ type Summary = {
   playerNames: string[];
 };
 
-type Notice = { roomId: string; ok: boolean; text: string };
-
 export default function AdminDashboard() {
   const router = useRouter();
   const [stats, setStats] = useState({ total: 0, active: 0, connected: 0 });
@@ -35,8 +33,6 @@ export default function AdminDashboard() {
   const [hours, setHours] = useState(12);
   const [link, setLink] = useState("");
   const [creating, setCreating] = useState(false);
-  const [pendingId, setPendingId] = useState<string | null>(null);
-  const [notice, setNotice] = useState<Notice | null>(null);
 
   async function load() {
     const res = await fetch("/api/admin/rooms", { cache: "no-store" });
@@ -111,44 +107,6 @@ export default function AdminDashboard() {
       toast.error("Could not create the room");
     } finally {
       setCreating(false);
-    }
-  }
-
-  async function runRoom(roomId: string, commandName: "start" | "restart") {
-    setPendingId(roomId);
-    setNotice(null);
-    try {
-      const res = await fetch(`/api/rooms/${roomId}/host`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        cache: "no-store",
-        body: JSON.stringify({ command: commandName }),
-      });
-      const data = (await res.json()) as {
-        error?: string;
-        snapshot?: { status?: string; game?: { phase?: string; handNumber?: number } | null };
-      };
-      if (!res.ok) {
-        const text = data.error || "Could not update the room";
-        setNotice({ roomId, ok: false, text });
-        toast.error(text);
-        return;
-      }
-      const phase = data.snapshot?.game?.phase ?? data.snapshot?.status ?? "updated";
-      const hand = data.snapshot?.game?.handNumber;
-      const text =
-        commandName === "restart"
-          ? `Match restarted. Now ${phase}${hand ? `, hand ${hand}` : ""}.`
-          : `Game started. Now ${phase}${hand ? `, hand ${hand}` : ""}.`;
-      setNotice({ roomId, ok: true, text });
-      toast.success(text);
-      await load();
-    } catch {
-      const text = "Could not reach the server.";
-      setNotice({ roomId, ok: false, text });
-      toast.error(text);
-    } finally {
-      setPendingId(null);
     }
   }
 
@@ -251,27 +209,11 @@ export default function AdminDashboard() {
                       <span className="text-sm text-gold">
                         {room.players}/{room.maxPlayers}
                       </span>
-                      {room.status === "lobby" && (
-                        <Button
-                          size="sm"
-                          disabled={pendingId === room.id}
-                          onClick={() => runRoom(room.id, "start")}
-                        >
-                          {pendingId === room.id ? "Starting..." : "Start"}
-                        </Button>
-                      )}
                       <Link href={`/admin/rooms/${room.id}`}>
-                        <Button size="sm" variant="outline">
-                          Manage room
-                        </Button>
+                        <Button size="sm">Manage table</Button>
                       </Link>
                     </div>
                   </div>
-                  {notice?.roomId === room.id && (
-                    <p className={`mt-3 text-sm ${notice.ok ? "text-emerald-300" : "text-red-300"}`}>
-                      {notice.text}
-                    </p>
-                  )}
                 </div>
               );
             })}
@@ -295,9 +237,7 @@ export default function AdminDashboard() {
                   <span className="mt-1 block text-sm text-white/55">No one seated</span>
                 </Link>
                 <Link href={`/admin/rooms/${room.id}`}>
-                  <Button size="sm" variant="outline">
-                    Manage room
-                  </Button>
+                  <Button size="sm">Manage table</Button>
                 </Link>
               </div>
             ))}
