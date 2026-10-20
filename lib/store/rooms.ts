@@ -180,6 +180,10 @@ export function findPlayerBySession(room: Room, sessionId: string) {
 }
 
 export function snapshotFor(room: Room, token: string | null) {
+  const seated = room.players.filter((player) => !player.removed);
+  if (seated.length > 0 && !seated.some((player) => player.isHost)) {
+    seated[0].isHost = true;
+  }
   const player = findPlayerByToken(room, token);
   if (player?.removed) return toSnapshot(room, null, { includeDeck: false });
   return toSnapshot(room, player?.id ?? null, { includeDeck: false });

@@ -11,7 +11,12 @@ export function useRoomSync(code: string, enabled: boolean) {
   const [connected, setConnected] = useState(false);
 
   const apply = useCallback((next: RoomSnapshot) => {
-    setSnapshot(next);
+    setSnapshot((prev) => {
+      if (prev?.you && !next.you) {
+        return { ...next, you: prev.you };
+      }
+      return next;
+    });
     setConnected(true);
     setError(null);
   }, []);

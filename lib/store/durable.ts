@@ -162,11 +162,25 @@ function mergePlayers(left: Room["players"], right: Room["players"]) {
   return [...map.values()].filter((player) => !player.removed);
 }
 
+function gameRank(room: Room) {
+  const phase = room.game?.phase ?? "";
+  const hand = room.game?.handNumber ?? 0;
+  if (room.status === "playing" || room.status === "paused") return 200 + hand;
+  if (phase && phase !== "waiting" && phase !== "lobby" && phase !== "complete") return 200 + hand;
+  if (room.status === "complete" || phase === "complete") return 50 + hand;
+  return 0;
+}
+
 export function mergeRoomPair(left: Room, right: Room): Room {
   const newer = left.updatedAt >= right.updatedAt ? left : right;
   const older = newer === left ? right : left;
+  const live = gameRank(left) >= gameRank(right) ? left : right;
   return {
     ...newer,
+    status: live.status,
+    locked: live.status === "playing" || live.status === "paused" ? live.locked : newer.locked,
+    game: live.game,
+    turnSeconds: newer.turnSeconds || older.turnSeconds,
     players: mergePlayers(left.players, right.players),
     inviteHash: newer.inviteHash || older.inviteHash,
     inviteSealed: newer.inviteSealed || older.inviteSealed,

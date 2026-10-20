@@ -29,14 +29,14 @@ export function Lobby({
 }) {
   const you = snapshot.you;
   const isHost = Boolean(you?.isHost) || Boolean(isAdmin);
-  const canStart = snapshot.players.filter((p) => p.isConnected || p.chipBalance > 0).length >= 2;
+  const canStart = snapshot.players.filter((p) => !p.removed).length >= 2;
   const [turnSeconds, setTurnSeconds] = useState(snapshot.turnSeconds || 30);
   const seats = Array.from({ length: Math.max(snapshot.maxPlayers, 6) }, (_, i) => i + 1);
 
   async function host(command: string, extra: Record<string, unknown> = {}) {
     try {
       const data = await sendHost(hostCode ?? snapshot.roomCode, { command, ...extra });
-      if (data.snapshot) onUpdate(data.snapshot);
+      if (data.snapshot) onUpdate({ ...data.snapshot, you: data.snapshot.you ?? snapshot.you });
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not update room");
     }
@@ -85,8 +85,7 @@ export function Lobby({
         })}
       </div>
 
-      {isHost ? (
-        <div className="glass-card mx-auto w-full max-w-xl shrink-0 space-y-3 rounded-3xl p-3">
+      <div className="glass-card mx-auto w-full max-w-xl shrink-0 space-y-3 rounded-3xl p-3">
           <div className="flex flex-wrap items-end gap-2">
             <div className="min-w-[140px]">
               <Label>Turn / bid time (s)</Label>
@@ -116,11 +115,8 @@ export function Lobby({
             )}
           </div>
           {!canStart && <p className="text-sm text-white/50">Need at least 2 players to start.</p>}
-          <HostSettings snapshot={snapshot} onSave={(body) => host("settings", body)} />
+          {isHost && <HostSettings snapshot={snapshot} onSave={(body) => host("settings", body)} />}
         </div>
-      ) : (
-        <p className="text-center text-white/60">Waiting for the administrator to start the game.</p>
-      )}
     </div>
   );
 }

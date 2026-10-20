@@ -41,7 +41,6 @@ export function startGame(room: Room) {
     throw new Error("Need at least 2 players with chips to start.");
   }
   room.status = "playing";
-  room.locked = true;
   room.game = {
     handNumber: 0,
     dealerSeat: seated[seated.length - 1]!.seatNumber,

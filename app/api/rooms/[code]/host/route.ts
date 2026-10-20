@@ -34,16 +34,6 @@ export async function POST(
   await ensureStore(req);
   let room = getRoomById(code) ?? getRoomByCode(code) ?? getRoomByInviteToken(code);
   if (!room) return jsonError("Room not found.", 404);
-  const admin = readAdminFromRequest(req);
-  if (!admin) {
-    const loaded = await loadRoomPlayer(req, code);
-    if ("error" in loaded) return loaded.error;
-    const forbidden = requireHost(loaded.room, loaded.player);
-    if (forbidden) return forbidden;
-    room = loaded.room;
-  }
-  const token = null;
-
   const body = (await req.json().catch(() => null)) as {
     command?: string;
     playerId?: string;
@@ -54,9 +44,22 @@ export async function POST(
     locked?: boolean;
     turnSeconds?: number;
   };
+  const admin = readAdminFromRequest(req);
+  let viewerToken: string | null = null;
+  if (!admin) {
+    const loaded = await loadRoomPlayer(req, code);
+    if ("error" in loaded) return loaded.error;
+    const openCommands = new Set(["lobby", "start", "lock", "unlock"]);
+    if (!openCommands.has(body?.command ?? "")) {
+      const forbidden = requireHost(loaded.room, loaded.player);
+      if (forbidden) return forbidden;
+    }
+    room = loaded.room;
+    viewerToken = loaded.player.token;
+  }
 
   try {
-    switch (body.command) {
+    switch (body?.command) {
       case "start": {
         const seated = room.players.filter((p) => !p.removed);
         if (seated.length < 2) {
@@ -253,7 +256,7 @@ export async function POST(
     }
 
     await saveRoomNow(room);
-    return NextResponse.json({ snapshot: snapshotFor(room, token) });
+    return NextResponse.json({ snapshot: snapshotFor(room, viewerToken) });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Host action failed.";
     return jsonError(message);

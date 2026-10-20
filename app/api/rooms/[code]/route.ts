@@ -3,7 +3,7 @@ import { jsonError, loadRoom } from "@/lib/auth";
 import { joinBlockReason } from "@/lib/admin/invitations";
 import { clientKey, rateLimit } from "@/lib/admin/rate-limit";
 import { getTokenFromRequest } from "@/lib/session";
-import { findPlayerByToken, heartbeat, saveRoomNow, snapshotFor } from "@/lib/store/rooms";
+import { findPlayerByToken, heartbeat, snapshotFor } from "@/lib/store/rooms";
 
 export async function GET(
   req: Request,
@@ -19,7 +19,6 @@ export async function GET(
     const player = findPlayerByToken(room, token);
     if (player && !player.removed) {
       heartbeat(room, player);
-      await saveRoomNow(room);
       return NextResponse.json({ snapshot: snapshotFor(room, token) });
     }
     const block = joinBlockReason(room, code);

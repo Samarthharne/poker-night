@@ -105,7 +105,7 @@ export function RoomExperience({ code }: { code: string }) {
   }, [code, setSnapshot]);
 
   useEffect(() => {
-    if (joined && snapshot && !snapshot.you) {
+    if (joined && snapshot && !snapshot.you && snapshot.status === "lobby") {
       setJoined(false);
     }
   }, [joined, snapshot]);
@@ -130,6 +130,20 @@ export function RoomExperience({ code }: { code: string }) {
       return;
     }
     await copyInvite();
+  }
+
+  async function goToLobby() {
+    if (snapshot?.status === "lobby") {
+      toast.message("You are already in the waiting room.");
+      return;
+    }
+    try {
+      const data = await sendHost(code, { command: "lobby" });
+      if (data.snapshot) setSnapshot(data.snapshot);
+      setSheet(null);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not return to lobby");
+    }
   }
 
   async function confirmLeave() {
@@ -213,6 +227,9 @@ export function RoomExperience({ code }: { code: string }) {
         </div>
         <div className="hidden items-center gap-2 md:flex">
           <span className="text-xs text-emerald-400">● Connected</span>
+          <Button size="sm" variant="outline" onClick={goToLobby}>
+            Back to lobby
+          </Button>
           <Button size="sm" variant="outline" onClick={() => setSheet("invite")}>
             Invite
           </Button>
@@ -221,9 +238,9 @@ export function RoomExperience({ code }: { code: string }) {
           </Button>
         </div>
         <div className="flex items-center gap-2 md:hidden">
-          <span className="text-xs text-emerald-400">
-            ● {snapshot.players.length}/{snapshot.maxPlayers}
-          </span>
+          <Button size="sm" variant="outline" onClick={goToLobby}>
+            Back to lobby
+          </Button>
           <button
             type="button"
             className="grid h-11 w-11 place-items-center rounded-xl bg-white/5"
@@ -256,18 +273,11 @@ export function RoomExperience({ code }: { code: string }) {
               {snapshot.game?.lastAction}
             </p>
             <PokerTable snapshot={snapshot} localStream={media.stream} remoteStreams={remoteStreams} />
-            {canManage && (
-              <div className="relative z-40 flex shrink-0 justify-center gap-2 px-3 pt-1">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={async () => {
-                    const data = await sendHost(code, { command: "lobby" });
-                    if (data.snapshot) setSnapshot(data.snapshot);
-                  }}
-                >
-                  Back to lobby
-                </Button>
+            <div className="relative z-40 flex shrink-0 justify-center gap-2 px-3 pt-1">
+              <Button size="sm" variant="outline" onClick={goToLobby}>
+                Back to lobby
+              </Button>
+              {canManage && (
                 <Button
                   size="sm"
                   variant="ghost"
@@ -278,8 +288,8 @@ export function RoomExperience({ code }: { code: string }) {
                 >
                   {snapshot.locked ? "Unlock" : "Lock"}
                 </Button>
-              </div>
-            )}
+              )}
+            </div>
             <div className="relative z-40 flex shrink-0 justify-center gap-2 px-3 py-1">
               <IconToggle
                 on={media.cameraEnabled}
@@ -388,19 +398,9 @@ export function RoomExperience({ code }: { code: string }) {
             <Button className="w-full" variant="ghost" onClick={() => setSheet("players")}>
               Players
             </Button>
-            {canManage && (
-              <Button
-                className="w-full"
-                variant="outline"
-                onClick={async () => {
-                  const data = await sendHost(code, { command: "lobby" });
-                  if (data.snapshot) setSnapshot(data.snapshot);
-                  setSheet(null);
-                }}
-              >
-                Back to lobby
-              </Button>
-            )}
+            <Button className="w-full" variant="outline" onClick={goToLobby}>
+              Back to lobby
+            </Button>
             <Button className="w-full" variant="danger" onClick={() => setLeaveOpen(true)}>
               <LogOut className="h-4 w-4" /> Leave Room
             </Button>
@@ -563,7 +563,7 @@ function GameComplete({ snapshot }: { snapshot: RoomSnapshot }) {
         ))}
       </ol>
       <p className="mt-8 text-sm text-white/55">
-        The match is over. Only the administrator can start a new one, from the admin dashboard.
+        The match is over. Use Back to lobby to wait for the next game.
       </p>
     </div>
   );
