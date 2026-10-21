@@ -93,32 +93,40 @@ If `NEXT_PUBLIC_SUPABASE_URL` is set, members also subscribe to a hashed Supabas
 
 SDP and ICE never go into the public poker snapshot. `cameraEnabled` / `microphoneEnabled` on a seat are the player's reported device toggles, not proof that another laptop is receiving media.
 
-### TURN (required for other networks)
+### TURN (required for different Wi-Fi or mobile data)
 
-Public STUN is not enough for two phones on different Wi-Fi or mobile data. Configure **your** TURN server (coturn, Twilio, Metered, Cloudflare Calls, etc.):
+A reachable TURN server is a **deployment prerequisite**. Frontend changes cannot provision a relay. Public STUN is enough for some same-LAN calls; it is not enough when friends are on different Wi-Fi or 4G/5G.
+
+Provision a real TURN service (self-hosted coturn, Twilio Network Traversal, Metered, Cloudflare, etc.), then set Netlify **Site configuration → Environment variables** and **redeploy** so functions pick them up.
 
 | Variable | Purpose |
 | --- | --- |
-| `NEXT_PUBLIC_STUN_URLS` | Optional STUN override |
-| `TURN_URLS` | TURN/TURNS URLs (UDP plus TCP/TLS if you have them) |
-| `TURN_SECRET` | coturn REST secret. Server mints `expiry:poker` usernames. **Never** prefix with `NEXT_PUBLIC_` |
-| `TURN_USERNAME` / `TURN_CREDENTIAL` | Static TURN login if you are not using time-limited REST auth |
-| `TURN_TTL_SECONDS` | Lifetime of minted credentials (default 3600) |
+| `NEXT_PUBLIC_STUN_URLS` | Optional comma/space-separated STUN URLs |
+| `TURN_URLS` | Server-only TURN URLs. Include UDP and, if the provider supports them, TCP and TLS. Example: `turn:turn.example:3478,turn:turn.example:3478?transport=tcp,turns:turn.example:443?transport=tcp` |
+| `TURN_SECRET` | coturn REST (`use-auth-secret`) shared secret. Server mints `expiry:poker` + HMAC-SHA1. **Never** use `NEXT_PUBLIC_` |
+| `TURN_USERNAME` / `TURN_CREDENTIAL` | Static TURN login if the provider does not use coturn REST (do not set these together with `TURN_SECRET` unless the provider says to) |
+| `TURN_TTL_SECONDS` | Credential lifetime (default 21600) |
 
-Room members fetch ICE servers from `/api/rooms/<code>/webrtc/ice` after they join. The TURN provider API key / coturn secret is never sent to the browser.
+`turns:` on port 443 is TLS TURN. `turn:` plus `?transport=tcp` is TCP TURN. Do not assume port 443 is TLS unless the URL scheme is `turns:`.
 
-Without TURN, local same-Wi-Fi browsers may still connect. Cross-network friends will usually stay on initials. Development builds log a warning and the diagnostic panel shows it.
+Members fetch ICE servers from `GET /api/webrtc/ice-servers?code=...` (room membership required) **before** any `RTCPeerConnection` is created. Credentials refresh at half TTL. The coturn/provider secret is never sent to the browser.
+
+Without TURN, the diagnostic panel shows `ice missing-turn`. Same-Wi-Fi may still work via host/srflx. Cross-network calls should not be treated as supported.
+
+### Relay-only diagnostic
+
+In development (or with `NEXT_PUBLIC_WEBRTC_DEBUG=1`), open **Relay only**. That sets `iceTransportPolicy: "relay"`. If video/audio then work, TURN credentials and the TURN host are good. If it fails, TURN is unreachable, firewalled, or mis-authed — not a poker bug.
 
 ### Diagnostics
 
-In `next dev`, a **WebRTC diagnostics** panel lists connection/ICE/signaling state per remote player, whether a video frame arrived, and host/srflx/relay when stats are available. Buttons: Test Camera, Test Microphone, Reconnect, Restart ICE, Relay-only ICE, Copy Diagnostic Report. Enable it on a production deploy with `NEXT_PUBLIC_WEBRTC_DEBUG=1`. The report does not include SDP or TURN secrets.
+The panel shows ICE fetch status, connection/ICE/signaling state, selected pair type (`host` / `srflx` / `relay`), transport (`udp` / `tcp`), whether a video frame arrived, and retry count. Copy Diagnostic Report is sanitized (no SDP, no secrets).
 
 ### Test two devices
 
-1. Deploy with TURN configured, or run `npm run dev` on one machine (same process, so signaling works on a LAN without blobs).
-2. Open the invitation link on two browsers. Allow camera and microphone on **both**.
-3. Confirm local preview, then the other face and voice. Mute/unmute should not drop the call.
-4. If audio is silent, use **Tap to enable audio** (browser autoplay).
-5. If faces never appear across networks, the diagnostic `pair` field should become `relay`. If it stays `unknown` and TURN is missing, configure TURN.
+1. Set TURN on Netlify and redeploy, or run `npm run dev` for same-machine signaling tests.
+2. Open the invitation on two browsers. Allow camera and microphone on **both**.
+3. Same Wi-Fi: expect host or srflx. Different Wi-Fi or mobile data: expect `relay` if TURN works.
+4. Use **Tap to enable audio** if the browser blocks autoplay.
+5. Use **Relay only** to prove TURN independently of STUN.
 
-Mesh scale: this design is for a 6-max table. An SFU (LiveKit env vars are reserved) is the next step if rooms grow past a handful of players.
+Mesh scale: this design is for a 6-max table. An SFU is the next step for larger rooms.

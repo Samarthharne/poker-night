@@ -28,6 +28,7 @@ type Slot = {
   lastAttemptAt: number;
   videoFrame: boolean;
   candidateType: PeerDiagnostics["candidateType"];
+  transport: PeerDiagnostics["transport"];
   backoffUntil: number;
 };
 
@@ -71,8 +72,11 @@ export function usePeerMedia(
 ) {
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const [diagnostics, setDiagnostics] = useState<Record<string, PeerDiagnostics>>({});
-  const [turnConfigured, setTurnConfigured] = useState(true);
+  const [turnConfigured, setTurnConfigured] = useState(false);
   const [turnWarning, setTurnWarning] = useState<string | null>(null);
+  const [iceFetchStatus, setIceFetchStatus] = useState<"pending" | "ok" | "error" | "missing-turn">(
+    "pending",
+  );
   const [forceRelay, setForceRelay] = useState(false);
   const streamRef = useRef(localStream);
   const selfRef = useRef(selfId);
@@ -80,6 +84,7 @@ export function usePeerMedia(
   const slotsRef = useRef(new Map<string, Slot>());
   const seenRef = useRef(new Set<string>());
   const iceRef = useRef<RTCConfiguration>(rtcConfiguration());
+  const iceReadyRef = useRef(false);
   const roomIdRef = useRef("");
   const channelRef = useRef<string | null>(null);
   streamRef.current = localStream;
@@ -106,6 +111,7 @@ export function usePeerMedia(
         ...remoteTrackFlags(remote),
         videoFrame: slot.videoFrame,
         candidateType: slot.candidateType,
+        transport: slot.transport,
         lastError: slot.lastError,
         lastAttemptAt: slot.lastAttemptAt,
         retryAttempt: slot.retryAttempt,
@@ -157,6 +163,7 @@ export function usePeerMedia(
     }
 
     function ensureSlot(peerId: string, sessionId?: string) {
+      if (!iceReadyRef.current) return null;
       const existing = slots.get(peerId);
       if (existing && existing.pc.connectionState !== "closed") {
         if (sessionId && sessionId !== existing.sessionId && sessionId !== "legacy") {
@@ -179,6 +186,7 @@ export function usePeerMedia(
         lastAttemptAt: Date.now(),
         videoFrame: false,
         candidateType: "unknown",
+        transport: "unknown",
         backoffUntil: 0,
       };
       slots.set(peerId, slot);
@@ -233,10 +241,13 @@ export function usePeerMedia(
       try {
         const stats = await slot.pc.getStats();
         stats.forEach((report) => {
-          if (report.type === "candidate-pair" && report.nominated) {
-            const remote = stats.get(report.remoteCandidateId as string) as { candidateType?: string } | undefined;
+          if (report.type === "candidate-pair" && (report.nominated || report.selected)) {
+            const remote = stats.get(report.remoteCandidateId as string) as
+              | { candidateType?: string; protocol?: string }
+              | undefined;
             const kind = remote?.candidateType;
             if (kind === "host" || kind === "srflx" || kind === "relay") slot.candidateType = kind;
+            if (remote?.protocol === "udp" || remote?.protocol === "tcp") slot.transport = remote.protocol;
           }
         });
       } catch {
@@ -249,7 +260,7 @@ export function usePeerMedia(
       const me = selfRef.current ?? "";
       if (!shouldOffer(me, peerId)) return;
       const slot = ensureSlot(peerId);
-      if (slot.makingOffer || slot.pc.signalingState !== "stable") return;
+      if (!slot || slot.makingOffer || slot.pc.signalingState !== "stable") return;
       if (Date.now() < slot.backoffUntil) return;
       slot.makingOffer = true;
       slot.lastAttemptAt = Date.now();
@@ -296,8 +307,9 @@ export function usePeerMedia(
       slot.retryAttempt += 1;
       slot.backoffUntil = Date.now() + nextRetryDelay(slot.retryAttempt);
       rtcLog("rebuild peer", { peerId, attempt: slot.retryAttempt });
+      await loadIce();
       drop(peerId);
-      ensureSlot(peerId);
+      if (!ensureSlot(peerId)) return;
       await negotiate(peerId);
     }
 
@@ -305,6 +317,7 @@ export function usePeerMedia(
       if (closed) return;
       const me = selfRef.current;
       if (!me || message.from === me || (message.to && message.to !== me)) return;
+      if (!iceReadyRef.current && message.type !== "hangup") return;
       const decision = canApplyMessage(slots.get(message.from)?.sessionId, message, seenRef.current);
       if (!decision.ok) return;
       seenRef.current.add(message.id);
@@ -314,6 +327,7 @@ export function usePeerMedia(
         return;
       }
       const slot = ensureSlot(message.from, message.sessionId === "legacy" ? undefined : message.sessionId);
+      if (!slot) return;
       try {
         if (message.type === "offer" || message.type === "ice-restart") {
           const glare = glareDecision({
@@ -329,7 +343,7 @@ export function usePeerMedia(
               await slot.pc.setLocalDescription({ type: "rollback" });
             } catch {
               drop(message.from);
-              ensureSlot(message.from, message.sessionId);
+              if (!ensureSlot(message.from, message.sessionId)) return;
             }
           }
           const live = slots.get(message.from);
@@ -384,7 +398,7 @@ export function usePeerMedia(
     }
 
     async function pump() {
-      if (closed) return;
+      if (closed || !iceReadyRef.current) return;
       const wanted = wantedRef.current.filter((id) => id && id !== selfRef.current);
       for (const id of [...slots.keys()]) {
         if (!wanted.includes(id)) drop(id, true);
@@ -439,25 +453,49 @@ export function usePeerMedia(
     });
 
     let broadcast: ReturnType<NonNullable<ReturnType<typeof getSupabaseBrowserClient>>["channel"]> | null = null;
-    const poll = setInterval(() => {
-      void pump();
-    }, 700);
+    let poll: ReturnType<typeof setInterval> | undefined;
+    let refreshTimer: ReturnType<typeof setTimeout> | undefined;
+
+    async function loadIce() {
+      const ice = await fetchRtcIce(code);
+      if (closed) return false;
+      if (!ice?.iceServers?.length) {
+        iceReadyRef.current = false;
+        setIceFetchStatus("error");
+        setTurnConfigured(false);
+        setTurnWarning("Could not load ICE servers. Retrying.");
+        rtcLog("ICE fetch failed");
+        return false;
+      }
+      iceRef.current = rtcConfiguration(ice.iceServers);
+      iceReadyRef.current = true;
+      setTurnConfigured(Boolean(ice.turnConfigured));
+      setTurnWarning(ice.warning ?? null);
+      setIceFetchStatus(ice.turnConfigured ? "ok" : "missing-turn");
+      roomIdRef.current = ice.roomId ?? "";
+      channelRef.current = ice.channel ?? null;
+      if (!ice.turnConfigured && ice.warning) rtcLog(ice.warning);
+      const refreshIn = Math.max(30_000, Math.floor(((ice.ttlSeconds ?? 3600) * 1000) / 2));
+      clearTimeout(refreshTimer);
+      refreshTimer = setTimeout(() => {
+        void loadIce();
+      }, refreshIn);
+      return true;
+    }
 
     void (async () => {
-      const ice = await fetchRtcIce(code);
-      if (closed) return;
-      if (ice?.iceServers?.length) {
-        iceRef.current = { ...rtcConfiguration(), iceServers: ice.iceServers };
+      let loaded = await loadIce();
+      let attempt = 0;
+      while (!closed && !loaded && attempt < 5) {
+        attempt += 1;
+        await new Promise((resolve) => setTimeout(resolve, nextRetryDelay(attempt)));
+        loaded = await loadIce();
       }
-      setTurnConfigured(Boolean(ice?.turnConfigured));
-      setTurnWarning(ice?.warning ?? null);
-      roomIdRef.current = ice?.roomId ?? "";
-      channelRef.current = ice?.channel ?? null;
-      if (ice && !ice.turnConfigured && ice.warning) rtcLog(ice.warning);
-      if (ice?.channel && isSupabaseConfigured()) {
+      if (closed || !loaded) return;
+      if (channelRef.current && isSupabaseConfigured()) {
         const client = getSupabaseBrowserClient();
         if (client) {
-          broadcast = client.channel(ice.channel);
+          broadcast = client.channel(channelRef.current);
           (
             broadcast as unknown as {
               on: (
@@ -472,6 +510,9 @@ export function usePeerMedia(
           void broadcast.subscribe();
         }
       }
+      poll = setInterval(() => {
+        void pump();
+      }, 700);
       await pump();
     })();
 
@@ -479,6 +520,7 @@ export function usePeerMedia(
       closed = true;
       unsub();
       clearInterval(poll);
+      clearTimeout(refreshTimer);
       void broadcast?.unsubscribe();
       for (const id of [...slots.keys()]) drop(id);
       setRemoteStreams({});
@@ -520,6 +562,7 @@ export function usePeerMedia(
     diagnostics,
     turnConfigured,
     turnWarning,
+    iceFetchStatus,
     forceRelay,
     setForceRelay,
     reconnect,

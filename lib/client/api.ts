@@ -156,17 +156,21 @@ export async function fetchRtcSignals(code: string) {
 
 export async function fetchRtcIce(code: string) {
   const token = getRoomToken(code);
-  const qs = token ? `?token=${encodeURIComponent(token)}` : "";
-  const res = await fetch(`/api/rooms/${code}/webrtc/ice${qs}`, {
+  const qs = new URLSearchParams({ code });
+  if (token) qs.set("token", token);
+  const res = await fetch(`/api/webrtc/ice-servers?${qs.toString()}`, {
     headers: authHeaders(code),
     cache: "no-store",
   });
+  if (!res.ok) return null;
   return (await res.json().catch(() => null)) as {
     iceServers?: RTCIceServer[];
     turnConfigured?: boolean;
     warning?: string | null;
     channel?: string;
     roomId?: string;
+    ttlSeconds?: number;
+    expiresAt?: number;
   } | null;
 }
 

@@ -20,6 +20,7 @@ export type PeerDiagnostics = {
   remoteVideo: boolean;
   videoFrame: boolean;
   candidateType: "host" | "srflx" | "relay" | "unknown";
+  transport: "udp" | "tcp" | "unknown";
   lastError: string | null;
   lastAttemptAt: number;
   retryAttempt: number;

@@ -13,6 +13,7 @@ export function WebrtcDebugPanel({
   localVideo,
   turnConfigured,
   turnWarning,
+  iceFetchStatus,
   onTestCamera,
   onTestMic,
   onReconnect,
@@ -25,6 +26,7 @@ export function WebrtcDebugPanel({
   localVideo: boolean;
   turnConfigured: boolean;
   turnWarning: string | null;
+  iceFetchStatus: "pending" | "ok" | "error" | "missing-turn";
   onTestCamera: () => void;
   onTestMic: () => void;
   onReconnect: (peerId?: string) => void;
@@ -42,6 +44,7 @@ export function WebrtcDebugPanel({
       localVideo,
       turnConfigured,
       turnWarning,
+      iceFetchStatus,
       peers: rows.map((row) => ({
         playerId: row.playerId,
         connectionState: row.connectionState,
@@ -49,6 +52,7 @@ export function WebrtcDebugPanel({
         iceGatheringState: row.iceGatheringState,
         signalingState: row.signalingState,
         candidateType: row.candidateType,
+        transport: row.transport,
         remoteAudio: row.remoteAudio,
         remoteVideo: row.remoteVideo,
         videoFrame: row.videoFrame,
@@ -63,8 +67,11 @@ export function WebrtcDebugPanel({
     <div className="fixed bottom-2 right-2 z-50 max-h-[45vh] max-w-sm overflow-auto rounded-xl border border-white/15 bg-black/85 p-2 font-mono text-[10px] text-white/80">
       <p className="font-semibold text-gold">WebRTC diagnostics</p>
       <p>Local cam {localVideo ? "on" : "off"} · mic {localAudio ? "on" : "off"}</p>
-      <p>TURN {turnConfigured ? "configured" : "missing"}</p>
+      <p>
+        TURN {turnConfigured ? "configured" : "missing"} · ice {iceFetchStatus}
+      </p>
       {turnWarning && <p className="text-amber-200">{turnWarning}</p>}
+      {forceRelay && <p className="text-sky-300">Relay-only ICE is on (diagnostic).</p>}
       <div className="mt-2 flex flex-wrap gap-1">
         <Button size="sm" variant="ghost" onClick={onTestCamera}>
           Test Camera
@@ -92,7 +99,9 @@ export function WebrtcDebugPanel({
             remote a/v {row.remoteAudio ? "audio" : "-"}/{row.remoteVideo ? "video" : "-"} frame{" "}
             {row.videoFrame ? "yes" : "no"}
           </p>
-          <p>pair {row.candidateType} · retry {row.retryAttempt}</p>
+          <p>
+            pair {row.candidateType}/{row.transport} · retry {row.retryAttempt}
+          </p>
           {row.lastError && <p className="text-rose-300">{row.lastError}</p>}
           <button
             type="button"

@@ -453,6 +453,7 @@ export function RoomExperience({ code }: { code: string }) {
         localVideo={media.cameraEnabled}
         turnConfigured={peers.turnConfigured}
         turnWarning={peers.turnWarning}
+        iceFetchStatus={peers.iceFetchStatus}
         forceRelay={peers.forceRelay}
         onForceRelay={peers.setForceRelay}
         onTestCamera={() => {
