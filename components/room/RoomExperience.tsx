@@ -66,12 +66,20 @@ export function RoomExperience({ code }: { code: string }) {
   }, []);
 
   useEffect(() => {
-    if (!joined || media.stream || cameraBooted.current) return;
-    cameraBooted.current = true;
-    void media.start(true, true).then((stream) => {
-      if (stream) void sendMedia(code, { cameraEnabled: true, microphoneEnabled: true });
+    if (!joined) return;
+    if (!media.stream && !cameraBooted.current) {
+      cameraBooted.current = true;
+      void media.start(true, true);
+    }
+  }, [joined, media.stream, media.start]);
+
+  useEffect(() => {
+    if (!joined || !media.stream) return;
+    void sendMedia(code, {
+      cameraEnabled: media.cameraEnabled,
+      microphoneEnabled: media.microphoneEnabled,
     });
-  }, [code, joined, media.stream, media.start]);
+  }, [code, joined, media.cameraEnabled, media.microphoneEnabled, media.stream]);
 
   useEffect(() => {
     let cancel = false;
