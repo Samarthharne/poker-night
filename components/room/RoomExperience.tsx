@@ -247,8 +247,8 @@ export function RoomExperience({ code }: { code: string }) {
             />
             <IconToggle
               on={media.microphoneEnabled}
-              onClick={() => {
-                const next = media.toggleMic();
+              onClick={async () => {
+                const next = await media.toggleMic();
                 void sendMedia(code, { microphoneEnabled: next });
               }}
               iconOn={<Mic className="h-4 w-4" />}
@@ -291,8 +291,8 @@ export function RoomExperience({ code }: { code: string }) {
               />
               <IconToggle
                 on={media.microphoneEnabled}
-                onClick={() => {
-                  const next = media.toggleMic();
+                onClick={async () => {
+                  const next = await media.toggleMic();
                   void sendMedia(code, { microphoneEnabled: next });
                 }}
                 iconOn={<Mic className="h-4 w-4" />}
