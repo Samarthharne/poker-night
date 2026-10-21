@@ -66,8 +66,15 @@ export function VideoPlayer({
     video.addEventListener("loadedmetadata", markReady);
     video.addEventListener("loadeddata", markReady);
     video.addEventListener("playing", markReady);
-    const onUnmute = () => markReady();
-    stream.getVideoTracks().forEach((track) => track.addEventListener("unmute", onUnmute));
+    video.addEventListener("timeupdate", markReady);
+    const onUnmute = () => {
+      void video.play().catch(() => undefined);
+      markReady();
+    };
+    stream.getVideoTracks().forEach((track) => {
+      track.enabled = true;
+      track.addEventListener("unmute", onUnmute);
+    });
     void video.play().catch(() => undefined);
     if (video.videoWidth > 0) markReady();
     if (audio) {
@@ -100,6 +107,7 @@ export function VideoPlayer({
       video.removeEventListener("loadedmetadata", markReady);
       video.removeEventListener("loadeddata", markReady);
       video.removeEventListener("playing", markReady);
+      video.removeEventListener("timeupdate", markReady);
       stream.getVideoTracks().forEach((track) => track.removeEventListener("unmute", onUnmute));
     };
   }, [active, muted, stream]);

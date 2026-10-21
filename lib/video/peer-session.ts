@@ -119,7 +119,11 @@ export function shouldForceRelay(input: {
   if (input.connectionState === "connected" || input.iceConnectionState === "connected" || input.iceConnectionState === "completed") {
     return false;
   }
-  return (input.now ?? Date.now()) - input.startedAt > 12_000;
+  const waited = (input.now ?? Date.now()) - input.startedAt;
+  if (input.iceConnectionState === "checking" || input.connectionState === "connecting") {
+    return waited > 5_000;
+  }
+  return waited > 8_000;
 }
 
 export function shouldRebuild(connectionState: string, iceConnectionState: string, retries: number) {

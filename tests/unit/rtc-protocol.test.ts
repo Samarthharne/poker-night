@@ -60,7 +60,7 @@ describe("offer polling", () => {
         alreadyRelay: false,
         connectionState: "connecting",
         iceConnectionState: "checking",
-        startedAt: Date.now() - 13_000,
+        startedAt: Date.now() - 6_000,
       }),
     ).toBe(true);
     expect(
@@ -69,7 +69,7 @@ describe("offer polling", () => {
         alreadyRelay: false,
         connectionState: "connecting",
         iceConnectionState: "checking",
-        startedAt: Date.now() - 13_000,
+        startedAt: Date.now() - 6_000,
         makingOffer: true,
       }),
     ).toBe(false);

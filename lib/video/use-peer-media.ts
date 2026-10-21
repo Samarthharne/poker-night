@@ -61,6 +61,29 @@ function attachLocal(pc: RTCPeerConnection, stream: MediaStream | null) {
   }
 }
 
+function waitForIceGathering(pc: RTCPeerConnection, ms = 2_000) {
+  if (pc.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      pc.removeEventListener("icegatheringstatechange", onChange);
+      pc.removeEventListener("icecandidate", onCandidate);
+      resolve();
+    };
+    const onChange = () => {
+      if (pc.iceGatheringState === "complete") finish();
+    };
+    const onCandidate = (event: RTCPeerConnectionIceEvent) => {
+      if (event.candidate?.candidate?.includes("typ relay")) finish();
+    };
+    pc.addEventListener("icegatheringstatechange", onChange);
+    pc.addEventListener("icecandidate", onCandidate);
+    window.setTimeout(finish, ms);
+  });
+}
+
 async function addQueuedIce(pc: RTCPeerConnection, queued: RTCIceCandidateInit[]) {
   const leftover: RTCIceCandidateInit[] = [];
   for (const candidate of queued) {
@@ -282,19 +305,25 @@ export function usePeerMedia(
       };
       pc.ontrack = (event) => {
         if (closed) return;
-        const inbound = event.streams[0];
         setRemoteStreams((prev) => {
-          if (inbound) {
-            if (prev[peerId] === inbound) return prev;
-            return { ...prev, [peerId]: inbound };
+          const tracks = new Map<string, MediaStreamTrack>();
+          for (const track of prev[peerId]?.getTracks() ?? []) tracks.set(track.id, track);
+          for (const track of event.streams[0]?.getTracks() ?? []) tracks.set(track.id, track);
+          tracks.set(event.track.id, event.track);
+          const next = new MediaStream([...tracks.values()].filter((track) => track.readyState !== "ended"));
+          const current = prev[peerId];
+          if (
+            current &&
+            current.getTracks().length === next.getTracks().length &&
+            current.getTracks().every((track) => next.getTracks().some((item) => item.id === track.id))
+          ) {
+            return prev;
           }
-          const tracks = [...(prev[peerId]?.getTracks() ?? []), event.track].filter(
-            (item, index, list) => item.readyState !== "ended" && list.findIndex((row) => row.id === item.id) === index,
-          );
-          return { ...prev, [peerId]: new MediaStream(tracks) };
+          return { ...prev, [peerId]: next };
         });
         event.track.addEventListener("unmute", () => publishDiag());
         event.track.addEventListener("ended", () => publishDiag());
+        publishDiag();
       };
       pc.onconnectionstatechange = () => {
         rtcLog("connectionState", { peerId, state: pc.connectionState });
@@ -357,6 +386,7 @@ export function usePeerMedia(
         const offer = await slot.pc.createOffer({ iceRestart });
         if (closed || slot.pc.signalingState !== "stable") return;
         await slot.pc.setLocalDescription(offer);
+        await waitForIceGathering(slot.pc);
         if (closed || slots.get(peerId) !== slot) return;
         const local = slot.pc.localDescription;
         if (!local) return;
@@ -451,6 +481,7 @@ export function usePeerMedia(
           attachLocal(live.pc, streamRef.current);
           const answer = await live.pc.createAnswer();
           await live.pc.setLocalDescription(answer);
+          await waitForIceGathering(live.pc);
           if (closed || slots.get(peerId) !== live) return;
           const local = live.pc.localDescription;
           if (local) {
@@ -607,6 +638,7 @@ export function usePeerMedia(
       iceRef.current = rtcConfiguration(ice.iceServers);
       iceReadyRef.current = true;
       iceTurn.current = Boolean(ice.turnConfigured);
+      if (iceTurn.current) relayOnly.current = true;
       setTurnConfigured(Boolean(ice.turnConfigured));
       setTurnWarning(ice.warning ?? null);
       setIceFetchStatus(ice.turnConfigured ? "ok" : "missing-turn");

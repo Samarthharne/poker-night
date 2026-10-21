@@ -1,5 +1,7 @@
 import type { Room } from "@/types/room";
 import { saveRoom } from "@/lib/store/rooms";
+
+const icePersistAt = new Map<string, number>();
 import { RTC_MESSAGE_TTL_MS, isRtcMessageType, keepRtcSignals, samePlayerId, type RtcMessage } from "./rtc-protocol";
 import type { PlayerRtcSignal } from "@/types/player";
 
@@ -95,6 +97,13 @@ export function persistRtcMessage(room: Room, message: RtcMessage) {
     }
   }
   if (durable) saveRoom(room);
+  else {
+    const last = icePersistAt.get(room.id) ?? 0;
+    if (now - last > 500) {
+      icePersistAt.set(room.id, now);
+      saveRoom(room);
+    }
+  }
 }
 
 export function takePersistedRtcMessages(room: Room, playerId: string): RtcMessage[] {
