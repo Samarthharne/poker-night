@@ -1,5 +1,5 @@
 import type { Room } from "@/types/room";
-import { saveRoom, saveRoomNow } from "@/lib/store/rooms";
+import { saveRoom } from "@/lib/store/rooms";
 import { RTC_MESSAGE_TTL_MS, isRtcMessageType, keepRtcSignals, samePlayerId, type RtcMessage } from "./rtc-protocol";
 import type { PlayerRtcSignal } from "@/types/player";
 
@@ -67,7 +67,7 @@ export function persistSignal(room: Room, signal: RtcSignal) {
   if (signal.description) saveRoom(room);
 }
 
-export async function persistRtcMessage(room: Room, message: RtcMessage, flush = false) {
+export function persistRtcMessage(room: Room, message: RtcMessage) {
   const now = Date.now();
   room.rtcSignals = keepRtcSignals([
     ...(room.rtcSignals ?? []),
@@ -77,15 +77,14 @@ export async function persistRtcMessage(room: Room, message: RtcMessage, flush =
       at: now,
     },
   ], now);
-  if (
-    (message.type === "offer" || message.type === "answer" || message.type === "ice-restart") &&
-    message.payload.sdp?.sdp
-  ) {
+  const durable =
+    message.type === "offer" || message.type === "answer" || message.type === "ice-restart";
+  if (durable && message.payload.sdp?.sdp) {
     const sender = room.players.find((player) => samePlayerId(player.id, message.from));
     if (sender) {
       const signal: PlayerRtcSignal = {
         id: message.id,
-        type: message.type,
+        type: message.type === "ice-restart" ? "ice-restart" : message.type === "answer" ? "answer" : "offer",
         to: message.to,
         sessionId: message.sessionId,
         sdp: message.payload.sdp.sdp,
@@ -95,8 +94,7 @@ export async function persistRtcMessage(room: Room, message: RtcMessage, flush =
       sender.rtcSignal = signal;
     }
   }
-  if (flush) await saveRoomNow(room);
-  else saveRoom(room);
+  if (durable) saveRoom(room);
 }
 
 export function takePersistedRtcMessages(room: Room, playerId: string): RtcMessage[] {

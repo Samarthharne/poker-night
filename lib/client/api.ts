@@ -133,13 +133,17 @@ export async function sendMedia(
 }
 
 export async function sendRtcSignal(code: string, body: Record<string, unknown>) {
-  const res = await fetch(`/api/rooms/${code}/signals`, {
-    method: "POST",
-    headers: authHeaders(code),
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(4_000),
-  });
-  return res.json().catch(() => ({ ok: false }));
+  try {
+    const res = await fetch(`/api/rooms/${code}/signals`, {
+      method: "POST",
+      headers: authHeaders(code),
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(8_000),
+    });
+    return res.json().catch(() => ({ ok: false }));
+  } catch {
+    return { ok: false, error: "Signal post timed out." };
+  }
 }
 
 export async function fetchRtcSignals(code: string) {

@@ -172,9 +172,19 @@ export function usePeerMedia(
     }
 
     async function post(message: RtcMessage) {
-      const result = (await sendRtcSignal(code, message)) as { ok?: boolean; error?: string } | null;
-      if (!result || result.ok === false) {
-        const err = result?.error || "Signal post failed.";
+      try {
+        const result = (await sendRtcSignal(code, message)) as { ok?: boolean; error?: string } | null;
+        if (!result || result.ok === false) {
+          const err = result?.error || "Signal post failed.";
+          if (message.type !== "ice-candidate") {
+            const slot = slots.get(message.to);
+            if (slot) slot.lastError = err;
+          }
+          rtcLog("signal post failed", { type: message.type, to: message.to, err });
+        }
+      } catch (error) {
+        if (message.type === "ice-candidate") return;
+        const err = error instanceof Error ? error.message : "Signal post failed.";
         const slot = slots.get(message.to);
         if (slot) slot.lastError = err;
         rtcLog("signal post failed", { type: message.type, to: message.to, err });

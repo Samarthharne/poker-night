@@ -52,10 +52,9 @@ export async function POST(
     candidate: (message.payload.candidate as Record<string, unknown> | null) ?? null,
     at: message.createdAt,
   });
-  const flush = message.type === "offer" || message.type === "answer" || message.type === "ice-restart";
-  await persistRtcMessage(loaded.room, message, flush);
-  const stored = await appendRtcMessage(loaded.room.id, message, req);
-  return NextResponse.json({ ok: true, stored, id: message.id });
+  persistRtcMessage(loaded.room, message);
+  void appendRtcMessage(loaded.room.id, message, req);
+  return NextResponse.json({ ok: true, stored: true, id: message.id });
 }
 
 export async function GET(
@@ -67,7 +66,10 @@ export async function GET(
   if ("error" in loaded) return loaded.error;
   const messages = mergeRtcMessages(
     takePersistedRtcMessages(loaded.room, loaded.player.id),
-    await readRtcMessages(loaded.room.id, loaded.player.id, req),
+    await Promise.race([
+      readRtcMessages(loaded.room.id, loaded.player.id, req),
+      new Promise<never[]>((resolve) => setTimeout(() => resolve([]), 400)),
+    ]),
   );
   return NextResponse.json(
     { messages, signals: messages },
