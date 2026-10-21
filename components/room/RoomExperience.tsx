@@ -29,7 +29,6 @@ import { useRoomSync } from "@/lib/realtime/use-room";
 import { useLocalMedia } from "@/lib/video/use-local-media";
 import { usePeerMedia } from "@/lib/video/use-peer-media";
 import { mergeRtcMessages, samePlayerId } from "@/lib/video/rtc-protocol";
-import { WebrtcDebugPanel } from "@/components/video/WebrtcDebugPanel";
 import { cn, formatChips } from "@/lib/utils";
 import type { RoomSnapshot } from "@/types/room";
 
@@ -470,24 +469,6 @@ export function RoomExperience({ code }: { code: string }) {
           </div>
         </Overlay>
       )}
-      <WebrtcDebugPanel
-        diagnostics={peers.diagnostics}
-        localAudio={media.microphoneEnabled}
-        localVideo={media.cameraEnabled}
-        turnConfigured={peers.turnConfigured}
-        turnWarning={peers.turnWarning}
-        iceFetchStatus={peers.iceFetchStatus}
-        forceRelay={peers.forceRelay}
-        onForceRelay={peers.setForceRelay}
-        onTestCamera={() => {
-          void media.start(true, media.microphoneEnabled);
-        }}
-        onTestMic={() => {
-          void media.start(media.cameraEnabled, true);
-        }}
-        onReconnect={peers.reconnect}
-        onRestartIce={peers.restartIce}
-      />
     </div>
   );
 }

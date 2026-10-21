@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import type { PeerDiagnostics } from "@/lib/video/peer-session";
 
 function visible() {
-  return true;
+  return process.env.NODE_ENV !== "production" || process.env.NEXT_PUBLIC_WEBRTC_DEBUG === "1";
 }
 
 export function WebrtcDebugPanel({
