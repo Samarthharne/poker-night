@@ -14,22 +14,13 @@ type PeerSlot = {
   ignoreOffer: boolean;
 };
 
-function waitForIce(pc: RTCPeerConnection) {
-  if (pc.iceGatheringState === "complete") return Promise.resolve();
-  return new Promise<void>((resolve) => {
-    let done = false;
-    const finish = () => {
-      if (done) return;
-      done = true;
-      pc.removeEventListener("icegatheringstatechange", onChange);
-      resolve();
-    };
-    const onChange = () => {
-      if (pc.iceGatheringState === "complete") finish();
-    };
-    pc.addEventListener("icegatheringstatechange", onChange);
-    setTimeout(finish, 4000);
-  });
+function candidatePayload(candidate: RTCIceCandidate): Candidate {
+  return {
+    candidate: candidate.candidate,
+    sdpMid: candidate.sdpMid,
+    sdpMLineIndex: candidate.sdpMLineIndex,
+    usernameFragment: candidate.usernameFragment,
+  };
 }
 
 function trackKind(transceiver: RTCRtpTransceiver): "audio" | "video" | null {
@@ -81,9 +72,10 @@ export function usePeerMedia(
       return [
         signal.from,
         signal.description?.type ?? "",
-        signal.description?.sdp?.slice(0, 64) ?? "",
+        signal.description?.sdp?.slice(0, 80) ?? "",
         signal.candidate?.candidate ?? "",
         signal.candidate?.sdpMid ?? "",
+        String(signal.candidate?.sdpMLineIndex ?? ""),
       ].join("|");
     }
 
@@ -102,8 +94,9 @@ export function usePeerMedia(
       }
     }
 
-    function bindRemote(peerId: string, track: MediaStreamTrack) {
+    function bindRemote(peerId: string, track: MediaStreamTrack, streams?: readonly MediaStream[]) {
       const local = streamRef.current;
+      if (local && streams?.[0]?.id === local.id) return;
       if (local?.getTracks().some((item) => item.id === track.id)) return;
       let stream = remoteMedia.current.get(peerId);
       if (!stream) {
@@ -117,6 +110,26 @@ export function usePeerMedia(
       const next = stream;
       setRemoteStreams((prev) => ({ ...prev, [peerId]: next }));
       track.onunmute = () => setRemoteStreams((prev) => ({ ...prev, [peerId]: next }));
+      track.onended = () => setRemoteStreams((prev) => ({ ...prev, [peerId]: next }));
+    }
+
+    async function sendOffer(peerId: string, slot: PeerSlot) {
+      const pc = slot.pc;
+      if (closed || !isOfferer(peerId) || pc.signalingState !== "stable") return;
+      try {
+        slot.makingOffer = true;
+        attachLocal(pc);
+        const offer = await pc.createOffer({ iceRestart: pc.iceConnectionState === "failed" });
+        await pc.setLocalDescription(offer);
+        const local = pc.localDescription;
+        if (local && !closed) {
+          await post(peerId, { description: { type: local.type, sdp: local.sdp } });
+        }
+      } catch {
+        /* glare */
+      } finally {
+        slot.makingOffer = false;
+      }
     }
 
     function ensure(peerId: string) {
@@ -130,41 +143,24 @@ export function usePeerMedia(
       pc.addTransceiver("video", { direction: "sendrecv" });
       const slot: PeerSlot = { pc, makingOffer: false, ignoreOffer: false };
       slots.current.set(peerId, slot);
-      pc.onicecandidate = () => {
-        /* ICE candidates are sent inside the SDP after gathering completes. */
+      pc.onicecandidate = (event) => {
+        if (!event.candidate) return;
+        void post(peerId, { candidate: candidatePayload(event.candidate) });
       };
       pc.ontrack = (event) => {
-        const local = streamRef.current;
-        if (local && event.streams[0]?.id === local.id) return;
-        bindRemote(peerId, event.track);
+        bindRemote(peerId, event.track, event.streams);
       };
       pc.onnegotiationneeded = () => {
-        void (async () => {
-          if (closed || !isOfferer(peerId) || pc.signalingState !== "stable") return;
-          try {
-            slot.makingOffer = true;
-            attachLocal(pc);
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            await waitForIce(pc);
-            const local = pc.localDescription;
-            if (local && !closed) {
-              await post(peerId, { description: { type: local.type, sdp: local.sdp } });
-            }
-          } catch {
-            /* glare */
-          } finally {
-            slot.makingOffer = false;
-          }
-        })();
+        void sendOffer(peerId, slot);
       };
       pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState === "failed") {
+        if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") {
           try {
             pc.restartIce();
           } catch {
             /* ignore */
           }
+          void sendOffer(peerId, slot);
         }
       };
       attachLocal(pc);
@@ -176,8 +172,8 @@ export function usePeerMedia(
       const key = signalKey(signal);
       if (seen.current.has(key)) return;
       seen.current.add(key);
-      if (seen.current.size > 500) {
-        seen.current = new Set([...seen.current].slice(-250));
+      if (seen.current.size > 600) {
+        seen.current = new Set([...seen.current].slice(-300));
       }
       const slot = ensure(signal.from);
       const pc = slot.pc;
@@ -206,7 +202,6 @@ export function usePeerMedia(
             attachLocal(pc);
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
-            await waitForIce(pc);
             const local = pc.localDescription;
             if (local) await post(signal.from, { description: { type: local.type, sdp: local.sdp } });
           }
@@ -262,7 +257,7 @@ export function usePeerMedia(
     void drain();
     const retry = setInterval(() => {
       void drain().catch(() => undefined);
-    }, 1200);
+    }, 800);
 
     return () => {
       closed = true;

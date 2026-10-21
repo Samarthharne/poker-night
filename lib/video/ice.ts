@@ -31,5 +31,10 @@ export function rtcConfiguration(): RTCConfiguration {
     });
   }
 
-  return { iceServers, iceCandidatePoolSize: 8 };
+  return {
+    iceServers,
+    iceCandidatePoolSize: 16,
+    bundlePolicy: "max-bundle",
+    rtcpMuxPolicy: "require",
+  };
 }

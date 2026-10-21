@@ -43,7 +43,7 @@ export async function POST(
   }
   publishSignal(loaded.room.id, signal);
   persistSignal(loaded.room, signal);
-  if (signal.description) await persistRooms();
+  await persistRooms();
   return NextResponse.json({ ok: true });
 }
 

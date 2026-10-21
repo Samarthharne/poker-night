@@ -40,7 +40,7 @@ export function PlayerSeat({
     remoteStream && localStream && remoteStream.id === localStream.id ? null : remoteStream;
   const stream = isYou ? localStream ?? null : remote ?? null;
   const liveVideo = Boolean(
-    stream?.getVideoTracks().some((track) => track.readyState === "live" && track.enabled),
+    stream?.getVideoTracks().some((track) => track.readyState !== "ended" && track.enabled !== false),
   );
   const hasMedia = Boolean(stream?.getTracks().some((track) => track.readyState !== "ended"));
 
