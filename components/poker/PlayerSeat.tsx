@@ -39,7 +39,9 @@ export function PlayerSeat({
   const remote =
     remoteStream && localStream && remoteStream.id === localStream.id ? null : remoteStream;
   const stream = isYou ? localStream ?? null : remote ?? null;
-  const liveVideo = Boolean(stream?.getVideoTracks().some((track) => track.readyState === "live"));
+  const liveVideo = Boolean(
+    stream?.getVideoTracks().some((track) => track.readyState === "live" && track.enabled),
+  );
   const hasMedia = Boolean(stream?.getTracks().some((track) => track.readyState !== "ended"));
 
   return (
@@ -73,7 +75,7 @@ export function PlayerSeat({
           label={player.displayName}
         />
         {!liveVideo && (
-          <div className="absolute inset-0 flex items-center justify-center bg-[#120c10]">
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[#120c10]">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-burgundy text-lg font-semibold">
               {initials(player.displayName)}
             </div>

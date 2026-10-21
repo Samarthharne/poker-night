@@ -54,18 +54,22 @@ export function JoinGate({
   async function join() {
     setBusy(true);
     try {
+      const started =
+        media.stream ?? ((await media.start(true, true)) as MediaStream | null | undefined);
+      const cameraEnabled = Boolean(started?.getVideoTracks().some((track) => track.enabled));
+      const microphoneEnabled = Boolean(started?.getAudioTracks().some((track) => track.enabled));
       if (onJoin) {
         await onJoin({
           displayName: name,
-          cameraEnabled: cameraOn,
-          microphoneEnabled: micOn,
+          cameraEnabled,
+          microphoneEnabled,
         });
         return;
       }
       const data = await joinRoom(code, {
         displayName: name,
-        cameraEnabled: cameraOn,
-        microphoneEnabled: micOn,
+        cameraEnabled,
+        microphoneEnabled,
       });
       if (data.snapshot) onJoined?.(data.snapshot);
     } catch (error) {

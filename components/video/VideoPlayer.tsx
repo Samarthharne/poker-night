@@ -28,22 +28,29 @@ export function VideoPlayer({
   useEffect(() => {
     const video = node.current;
     if (!video) return;
-    video.muted = muted;
     if (!active || !stream) {
-      if (video.srcObject) video.srcObject = null;
+      video.srcObject = null;
       return;
     }
     if (video.srcObject !== stream) video.srcObject = stream;
+    video.playsInline = true;
+    video.autoplay = true;
     const play = () => {
       video.muted = true;
       void video.play().then(() => {
-        if (!muted) video.muted = false;
+        video.muted = muted;
+        if (!muted) video.volume = 1;
       }).catch(() => undefined);
     };
     play();
+    const unlock = () => play();
+    window.addEventListener("pointerdown", unlock);
     stream.getTracks().forEach((track) => {
       track.onunmute = play;
     });
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+    };
   }, [active, muted, stream]);
 
   return (

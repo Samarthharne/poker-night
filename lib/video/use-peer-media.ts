@@ -14,19 +14,13 @@ type PeerSlot = {
   ignoreOffer: boolean;
 };
 
-function candidatePayload(candidate: RTCIceCandidate): Candidate {
-  return {
-    candidate: candidate.candidate,
-    sdpMid: candidate.sdpMid,
-    sdpMLineIndex: candidate.sdpMLineIndex,
-    usernameFragment: candidate.usernameFragment,
-  };
-}
-
 function waitForIce(pc: RTCPeerConnection) {
   if (pc.iceGatheringState === "complete") return Promise.resolve();
   return new Promise<void>((resolve) => {
+    let done = false;
     const finish = () => {
+      if (done) return;
+      done = true;
       pc.removeEventListener("icegatheringstatechange", onChange);
       resolve();
     };
@@ -34,7 +28,7 @@ function waitForIce(pc: RTCPeerConnection) {
       if (pc.iceGatheringState === "complete") finish();
     };
     pc.addEventListener("icegatheringstatechange", onChange);
-    setTimeout(finish, 2500);
+    setTimeout(finish, 4000);
   });
 }
 
@@ -136,9 +130,8 @@ export function usePeerMedia(
       pc.addTransceiver("video", { direction: "sendrecv" });
       const slot: PeerSlot = { pc, makingOffer: false, ignoreOffer: false };
       slots.current.set(peerId, slot);
-      pc.onicecandidate = (event) => {
-        if (!event.candidate) return;
-        void post(peerId, { candidate: candidatePayload(event.candidate) });
+      pc.onicecandidate = () => {
+        /* ICE candidates are sent inside the SDP after gathering completes. */
       };
       pc.ontrack = (event) => {
         const local = streamRef.current;
