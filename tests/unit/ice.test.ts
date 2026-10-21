@@ -75,9 +75,9 @@ describe("WebRTC ICE config", () => {
   });
 
   it("loads Metered ICE servers on the server and never returns the API key", async () => {
-    process.env.METERED_DOMAIN = "poker-night.metered.live";
-    process.env.METERED_API_KEY = "test-metered-secret";
-    expect(meteredCredentialsUrl()).toContain("apiKey=test-metered-secret");
+    process.env.METERED_DOMAIN = "turn-app.example";
+    process.env.METERED_API_KEY = "unit-test-metered-key";
+    expect(meteredCredentialsUrl()).toContain("apiKey=unit-test-metered-key");
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       json: async () => [
@@ -93,7 +93,7 @@ describe("WebRTC ICE config", () => {
     const ice = await buildIceResponseAsync();
     expect(ice.turnConfigured).toBe(true);
     expect(fetchMock).toHaveBeenCalledOnce();
-    expect(JSON.stringify(ice)).not.toContain("test-metered-secret");
+    expect(JSON.stringify(ice)).not.toContain("unit-test-metered-key");
     vi.unstubAllGlobals();
   });
 });

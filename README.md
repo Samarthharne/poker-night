@@ -101,8 +101,8 @@ This project is set up for **Metered TURN**. The browser never calls Metered. Th
 
 | Variable | Purpose |
 | --- | --- |
-| `METERED_DOMAIN` | Metered app host, e.g. `poker-night.metered.live` |
-| `METERED_API_KEY` | Metered TURN REST API key. **Server only. Never `NEXT_PUBLIC_`.** |
+| `METERED_DOMAIN` | Metered app host from your Metered dashboard (do not commit the value) |
+| `METERED_API_KEY` | Metered TURN REST API key. **Server only. Never `NEXT_PUBLIC_`. Do not commit the value.** |
 
 Set both on Netlify → Site configuration → Environment variables, then **redeploy**. Locally they go in `.env.local`.
 

@@ -3,6 +3,9 @@
 
 [build.environment]
   NODE_VERSION = "20"
+  # Next inlines server env into functions; these keys must stay off the public site.
+  SECRETS_SCAN_OMIT_KEYS = "METERED_API_KEY,METERED_DOMAIN"
+  SECRETS_SCAN_OMIT_PATHS = ".next"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"

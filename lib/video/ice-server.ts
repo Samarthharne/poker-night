@@ -18,8 +18,8 @@ export function mintTurnCredential(secret: string, nowMs = Date.now(), ttlSecond
 
 export function meteredCredentialsUrl() {
   const apiKey = process.env.METERED_API_KEY ?? "";
-  if (!apiKey) return null;
-  const host = (process.env.METERED_DOMAIN ?? "poker-night.metered.live").replace(/^https?:\/\//, "");
+  const host = (process.env.METERED_DOMAIN ?? "").replace(/^https?:\/\//, "").trim();
+  if (!apiKey || !host) return null;
   return `https://${host}/api/v1/turn/credentials?apiKey=${encodeURIComponent(apiKey)}`;
 }
 
