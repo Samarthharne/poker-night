@@ -40,11 +40,33 @@ export function turnIceServers(urls: string[], username: string, credential: str
   return urls.map((item) => ({ urls: item, username, credential }));
 }
 
+function sanitizeIceServers(iceServers: RTCIceServer[]) {
+  const servers: RTCIceServer[] = [];
+  for (const server of iceServers) {
+    const urls = (Array.isArray(server.urls) ? server.urls : server.urls ? [server.urls] : [])
+      .map(String)
+      .filter(
+        (url) =>
+          url.startsWith("stun:") ||
+          url.startsWith("stuns:") ||
+          url.startsWith("turn:") ||
+          url.startsWith("turns:"),
+      );
+    if (!urls.length) continue;
+    servers.push({
+      urls: urls.length === 1 ? urls[0] : urls,
+      ...(server.username ? { username: server.username } : {}),
+      ...(server.credential ? { credential: server.credential } : {}),
+    });
+  }
+  return servers;
+}
+
 export function rtcConfiguration(iceServers?: RTCIceServer[]): RTCConfiguration {
   return {
-    iceServers: iceServers?.length ? iceServers : stunServers(),
+    iceServers: sanitizeIceServers(iceServers?.length ? iceServers : stunServers()),
     bundlePolicy: "max-bundle",
     rtcpMuxPolicy: "require",
-    iceCandidatePoolSize: 4,
+    iceCandidatePoolSize: 0,
   };
 }

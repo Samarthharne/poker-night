@@ -28,6 +28,7 @@ import { clearRoomToken } from "@/lib/client/session";
 import { useRoomSync } from "@/lib/realtime/use-room";
 import { useLocalMedia } from "@/lib/video/use-local-media";
 import { usePeerMedia } from "@/lib/video/use-peer-media";
+import { samePlayerId } from "@/lib/video/rtc-protocol";
 import { WebrtcDebugPanel } from "@/components/video/WebrtcDebugPanel";
 import { cn, formatChips } from "@/lib/utils";
 import type { RoomSnapshot } from "@/types/room";
@@ -47,7 +48,10 @@ export function RoomExperience({ code }: { code: string }) {
   const [roomName, setRoomName] = useState("");
   const [isAdmin, setIsAdmin] = useState(false);
   const peerIds = useMemo(
-    () => snapshot?.players.filter((player) => player.id !== snapshot.you?.id).map((player) => player.id) ?? [],
+    () =>
+      (snapshot?.players ?? [])
+        .map((player) => player.id)
+        .filter((id): id is string => Boolean(id) && !samePlayerId(id, snapshot?.you?.id)),
     [snapshot],
   );
   const peers = usePeerMedia(

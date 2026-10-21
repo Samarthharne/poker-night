@@ -68,7 +68,7 @@ export function WebrtcDebugPanel({
       <p className="font-semibold text-gold">WebRTC diagnostics</p>
       <p>Local cam {localVideo ? "on" : "off"} · mic {localAudio ? "on" : "off"}</p>
       <p>
-        TURN {turnConfigured ? "configured" : "missing"} · ice {iceFetchStatus}
+        TURN {turnConfigured ? "configured" : "missing"} · ice {iceFetchStatus} · peers {rows.length}
       </p>
       {turnWarning && <p className="text-amber-200">{turnWarning}</p>}
       {forceRelay && <p className="text-sky-300">Relay-only ICE is on (diagnostic).</p>}

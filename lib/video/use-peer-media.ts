@@ -123,9 +123,10 @@ export function usePeerMedia(
   const roomIdRef = useRef("");
   const channelRef = useRef<string | null>(null);
   const incomingRef = useRef(incomingMessages);
+  const pumpRef = useRef<() => void>(() => {});
   streamRef.current = localStream;
   selfRef.current = selfId;
-  wantedRef.current = peerIds;
+  wantedRef.current = Array.isArray(peerIds) ? peerIds : [];
   incomingRef.current = incomingMessages;
 
   const remotesRef = useRef(remoteStreams);
@@ -154,6 +155,28 @@ export function usePeerMedia(
         retryAttempt: slot.retryAttempt,
       };
     }
+    for (const id of wantedRef.current) {
+      if (!id || samePlayerId(id, selfRef.current) || next[id]) continue;
+      next[id] = {
+        playerId: id,
+        sessionId: "",
+        offerer: shouldOffer(selfRef.current ?? "", id),
+        polite: !shouldOffer(selfRef.current ?? "", id),
+        connectionState: "idle",
+        iceConnectionState: "new",
+        iceGatheringState: "new",
+        signalingState: "stable",
+        ...localTrackFlags(streamRef.current),
+        remoteAudio: false,
+        remoteVideo: false,
+        videoFrame: false,
+        candidateType: "unknown",
+        transport: "unknown",
+        lastError: "Waiting to open the camera link.",
+        lastAttemptAt: 0,
+        retryAttempt: 0,
+      };
+    }
     setDiagnostics(next);
   }, []);
 
@@ -163,6 +186,7 @@ export function usePeerMedia(
     const slots = slotsRef.current;
     slots.clear();
     seenRef.current.clear();
+    iceReadyRef.current = false;
     const relayOnly = { current: forceRelay };
     const iceTurn = { current: false };
 
@@ -225,10 +249,21 @@ export function usePeerMedia(
           return existing;
         }
       }
-      const pc = new RTCPeerConnection({
-        ...iceRef.current,
-        iceTransportPolicy: relayOnly.current ? "relay" : "all",
-      });
+      let pc: RTCPeerConnection;
+      try {
+        pc = new RTCPeerConnection({
+          ...iceRef.current,
+          iceTransportPolicy: relayOnly.current ? "relay" : "all",
+        });
+      } catch (error) {
+        rtcLog("pc create failed", { peerId, error: String(error) });
+        try {
+          pc = new RTCPeerConnection(rtcConfiguration());
+        } catch (fallback) {
+          rtcLog("pc fallback failed", { peerId, error: String(fallback) });
+          return null;
+        }
+      }
       const slot: Slot = {
         pc,
         sessionId: incoming,
@@ -475,7 +510,13 @@ export function usePeerMedia(
       for (const id of [...slots.keys()]) {
         if (!wanted.some((item) => samePlayerId(item, id))) drop(id, true);
       }
-      for (const id of wanted) ensureSlot(id);
+      for (const id of wanted) {
+        try {
+          ensureSlot(id);
+        } catch (error) {
+          rtcLog("ensureSlot failed", { peerId: id, error: String(error) });
+        }
+      }
       try {
         const messages = mergeRtcMessages(incomingRef.current, await fetchRtcSignals(code));
         for (const message of messages) await apply(message);
@@ -576,7 +617,6 @@ export function usePeerMedia(
       iceRef.current = rtcConfiguration(ice.iceServers);
       iceReadyRef.current = true;
       iceTurn.current = Boolean(ice.turnConfigured);
-      if (iceTurn.current) relayOnly.current = true;
       setTurnConfigured(Boolean(ice.turnConfigured));
       setTurnWarning(ice.warning ?? null);
       setIceFetchStatus(ice.turnConfigured ? "ok" : "missing-turn");
@@ -618,6 +658,9 @@ export function usePeerMedia(
           void broadcast.subscribe();
         }
       }
+      pumpRef.current = () => {
+        if (!closed) void pump();
+      };
       poll = setInterval(() => {
         void pump();
       }, 700);
@@ -626,6 +669,8 @@ export function usePeerMedia(
 
     return () => {
       closed = true;
+      pumpRef.current = () => {};
+      iceReadyRef.current = false;
       unsub();
       clearInterval(poll);
       clearTimeout(refreshTimer);
@@ -635,6 +680,12 @@ export function usePeerMedia(
       setDiagnostics({});
     };
   }, [code, enabled, selfId, forceRelay, publishDiag]);
+
+  const peerKey = [...wantedRef.current].filter(Boolean).sort().join("|");
+  useEffect(() => {
+    publishDiag();
+    pumpRef.current();
+  }, [peerKey, publishDiag]);
 
   useEffect(() => {
     if (!localStream) return;

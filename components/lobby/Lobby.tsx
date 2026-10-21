@@ -4,6 +4,7 @@ import { initials } from "@/lib/utils";
 import type { RoomSnapshot } from "@/types/room";
 import { PlayerSeat } from "@/components/poker/PlayerSeat";
 import { streamForPlayer } from "@/lib/video/peer-id";
+import { samePlayerId } from "@/lib/video/rtc-protocol";
 
 export function Lobby({
   snapshot,
@@ -61,9 +62,9 @@ export function Lobby({
                 bigBlindSeat={null}
                 isTurn={false}
                 compact
-                localStream={player.id === localId ? localStream : null}
+                localStream={samePlayerId(player.id, localId) ? localStream : null}
                 remoteStream={streamForPlayer(remoteStreams, player.id)}
-                isYou={player.id === localId}
+                isYou={samePlayerId(player.id, localId)}
                 speakerMuted={speakerMuted}
                 onFrame={(ready) => onFrame?.(player.id, ready)}
                 onAudioBlocked={onAudioBlocked}
