@@ -3,6 +3,7 @@ import {
   isExpiredMessage,
   isOfferer,
   isStaleSession,
+  keepRtcSignals,
   mergeRtcMessages,
   nextRetryDelay,
   pairSessionId,
@@ -51,7 +52,7 @@ describe("offer polling", () => {
         hasRemoteDescription: false,
       }),
     ).toBe(true);
-    expect(shouldRetryStuckOffer("have-local-offer", false, Date.now() - 9_000)).toBe(true);
+    expect(shouldRetryStuckOffer("have-local-offer", false, Date.now() - 13_000)).toBe(true);
     expect(shouldRetryStuckOffer("have-local-offer", false, Date.now() - 1_000)).toBe(false);
     expect(
       shouldForceRelay({
@@ -59,9 +60,19 @@ describe("offer polling", () => {
         alreadyRelay: false,
         connectionState: "connecting",
         iceConnectionState: "checking",
-        startedAt: Date.now() - 5_000,
+        startedAt: Date.now() - 13_000,
       }),
     ).toBe(true);
+    expect(
+      shouldForceRelay({
+        turnConfigured: true,
+        alreadyRelay: false,
+        connectionState: "connecting",
+        iceConnectionState: "checking",
+        startedAt: Date.now() - 13_000,
+        makingOffer: true,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -120,6 +131,32 @@ describe("signaling isolation", () => {
         messageRoomId: "room-1",
       }),
     ).toBe(true);
+    expect(
+      signalingAllowed({
+        senderId: a.replace(/-/g, ""),
+        targetId: b,
+        memberIds: [a, b],
+        roomId: "room-1",
+        messageRoomId: "room-1",
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("signal store", () => {
+  it("keeps offers when ICE candidates flood the inbox", () => {
+    const offer = {
+      id: "offer-1",
+      type: "offer",
+      createdAt: Date.now(),
+    };
+    const ice = Array.from({ length: 80 }, (_, index) => ({
+      id: `ice-${index}`,
+      type: "ice-candidate",
+      createdAt: Date.now(),
+    }));
+    const kept = keepRtcSignals([...ice, offer]);
+    expect(kept.some((item) => item.id === "offer-1")).toBe(true);
   });
 });
 

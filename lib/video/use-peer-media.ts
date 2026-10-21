@@ -19,7 +19,7 @@ import {
   type PeerDiagnostics,
 } from "./peer-session";
 import { onVideoSignal } from "./signal-client";
-import { createRtcMessage, mergeRtcMessages, nextRetryDelay, normalizePlayerId, pairSessionId, type RtcMessage } from "./rtc-protocol";
+import { createRtcMessage, mergeRtcMessages, nextRetryDelay, pairSessionId, samePlayerId, type RtcMessage } from "./rtc-protocol";
 
 type Slot = {
   pc: RTCPeerConnection;
@@ -61,7 +61,7 @@ function attachLocal(pc: RTCPeerConnection, stream: MediaStream | null) {
   }
 }
 
-function waitForIceGathering(pc: RTCPeerConnection, ms = 4_000) {
+function waitForIceGathering(pc: RTCPeerConnection, ms = 800) {
   if (pc.iceGatheringState === "complete") return Promise.resolve();
   return new Promise<void>((resolve) => {
     let settled = false;
@@ -69,12 +69,17 @@ function waitForIceGathering(pc: RTCPeerConnection, ms = 4_000) {
       if (settled) return;
       settled = true;
       pc.removeEventListener("icegatheringstatechange", onChange);
+      pc.removeEventListener("icecandidate", onCandidate);
       resolve();
     };
     const onChange = () => {
       if (pc.iceGatheringState === "complete") finish();
     };
+    const onCandidate = (event: RTCPeerConnectionIceEvent) => {
+      if (event.candidate?.candidate?.includes("typ relay")) finish();
+    };
     pc.addEventListener("icegatheringstatechange", onChange);
+    pc.addEventListener("icecandidate", onCandidate);
     window.setTimeout(finish, ms);
   });
 }
@@ -162,14 +167,16 @@ export function usePeerMedia(
     const iceTurn = { current: false };
 
     function canonicalPeerId(id: string) {
-      const want = normalizePlayerId(id);
-      return wantedRef.current.find((item) => normalizePlayerId(item) === want) ?? id;
+      return wantedRef.current.find((item) => samePlayerId(item, id)) ?? id;
     }
 
     async function post(message: RtcMessage) {
-      const result = await sendRtcSignal(code, message);
+      const result = (await sendRtcSignal(code, message)) as { ok?: boolean; error?: string } | null;
       if (!result || result.ok === false) {
-        rtcLog("signal post failed", { type: message.type, to: message.to });
+        const err = result?.error || "Signal post failed.";
+        const slot = slots.get(message.to);
+        if (slot) slot.lastError = err;
+        rtcLog("signal post failed", { type: message.type, to: message.to, err });
       }
     }
 
@@ -238,8 +245,18 @@ export function usePeerMedia(
       };
       slots.set(peerId, slot);
       attachLocal(pc, streamRef.current);
-      pc.onicecandidate = () => {
-        /* Candidates are sent in the complete SDP after gathering. */
+      pc.onicecandidate = (event) => {
+        if (closed || slots.get(peerId) !== slot || !event.candidate) return;
+        void post(
+          createRtcMessage({
+            roomId: roomIdRef.current,
+            from: selfRef.current ?? "",
+            to: peerId,
+            type: "ice-candidate",
+            sessionId: slot.sessionId,
+            payload: { candidate: event.candidate ? event.candidate.toJSON() : null },
+          }),
+        );
       };
       pc.ontrack = (event) => {
         if (closed) return;
@@ -317,6 +334,7 @@ export function usePeerMedia(
         if (closed || slot.pc.signalingState !== "stable") return;
         await slot.pc.setLocalDescription(offer);
         await waitForIceGathering(slot.pc);
+        if (closed || slots.get(peerId) !== slot) return;
         const local = slot.pc.localDescription;
         if (!local) return;
         slot.lastAttemptAt = Date.now();
@@ -366,8 +384,8 @@ export function usePeerMedia(
     async function apply(message: RtcMessage) {
       if (closed) return;
       const me = selfRef.current;
-      if (!me || normalizePlayerId(message.from) === normalizePlayerId(me)) return;
-      if (message.to && normalizePlayerId(message.to) !== normalizePlayerId(me)) return;
+      if (!me || samePlayerId(message.from, me)) return;
+      if (message.to && !samePlayerId(message.to, me)) return;
       if (!iceReadyRef.current && message.type !== "hangup") return;
       const peerId = canonicalPeerId(message.from);
       const decision = canApplyMessage(slots.get(peerId)?.sessionId, message, seenRef.current);
@@ -409,6 +427,7 @@ export function usePeerMedia(
           const answer = await live.pc.createAnswer();
           await live.pc.setLocalDescription(answer);
           await waitForIceGathering(live.pc);
+          if (closed || slots.get(peerId) !== live) return;
           const local = live.pc.localDescription;
           if (local) {
             await post(
@@ -452,9 +471,9 @@ export function usePeerMedia(
 
     async function pump() {
       if (closed || !iceReadyRef.current) return;
-      const wanted = wantedRef.current.filter((id) => id && id !== selfRef.current);
+      const wanted = wantedRef.current.filter((id) => id && !samePlayerId(id, selfRef.current));
       for (const id of [...slots.keys()]) {
-        if (!wanted.includes(id)) drop(id, true);
+        if (!wanted.some((item) => samePlayerId(item, id))) drop(id, true);
       }
       for (const id of wanted) ensureSlot(id);
       try {
@@ -475,6 +494,7 @@ export function usePeerMedia(
             connectionState: slot.pc.connectionState,
             iceConnectionState: slot.pc.iceConnectionState,
             startedAt: slot.openedAt,
+            makingOffer: slot.makingOffer,
           })
         ) {
           rtcLog("force relay", { peerId: id });
@@ -485,7 +505,7 @@ export function usePeerMedia(
           continue;
         }
         const hasRemote = Boolean(slot.pc.currentRemoteDescription);
-        if (shouldRetryStuckOffer(slot.pc.signalingState, hasRemote, slot.lastAttemptAt)) {
+        if (!slot.makingOffer && shouldRetryStuckOffer(slot.pc.signalingState, hasRemote, slot.lastAttemptAt)) {
           rtcLog("retry stuck offer", { peerId: id });
           drop(id);
           if (!ensureSlot(id)) continue;
@@ -556,6 +576,7 @@ export function usePeerMedia(
       iceRef.current = rtcConfiguration(ice.iceServers);
       iceReadyRef.current = true;
       iceTurn.current = Boolean(ice.turnConfigured);
+      if (iceTurn.current) relayOnly.current = true;
       setTurnConfigured(Boolean(ice.turnConfigured));
       setTurnWarning(ice.warning ?? null);
       setIceFetchStatus(ice.turnConfigured ? "ok" : "missing-turn");

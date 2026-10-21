@@ -264,7 +264,13 @@ function mergeRtcSignals(
     const id = item.id || `${item.from}:${item.to}:${created}:${item.type || "legacy"}`;
     map.set(id, { ...item, id, createdAt: created, at: item.at ?? created });
   }
-  return [...map.values()].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)).slice(-160);
+  const vital = [...map.values()].filter(
+    (item) => item.type === "offer" || item.type === "answer" || item.type === "ice-restart",
+  );
+  const rest = [...map.values()].filter(
+    (item) => item.type !== "offer" && item.type !== "answer" && item.type !== "ice-restart",
+  );
+  return [...vital, ...rest].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)).slice(-160);
 }
 
 export function mergeRoomPair(left: Room, right: Room): Room {

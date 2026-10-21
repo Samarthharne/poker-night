@@ -46,6 +46,19 @@ describe("public snapshot", () => {
     ];
     const snapshot = toSnapshot(room, viewer.id);
     expect(snapshot.rtcMessages?.map((item) => item.id)).toEqual(["for-you"]);
+    room.rtcSignals = [
+      {
+        id: "dashed",
+        from: other.id,
+        to: viewer.id.replace(/-/g, ""),
+        type: "answer",
+        sessionId: "s",
+        createdAt: Date.now(),
+        at: Date.now(),
+        payload: { sdp: { type: "answer", sdp: "v=0" } },
+      },
+    ];
+    expect(toSnapshot(room, viewer.id).rtcMessages?.map((item) => item.id)).toEqual(["dashed"]);
   });
 
   it("reports lobby after end game even if status lagged", () => {

@@ -30,6 +30,38 @@ export function normalizePlayerId(id: string) {
   return id.replace(/-/g, "").toLowerCase();
 }
 
+export function samePlayerId(left?: string | null, right?: string | null) {
+  return Boolean(left && right && normalizePlayerId(left) === normalizePlayerId(right));
+}
+
+export function playerInList(id: string, ids: string[]) {
+  return ids.some((item) => samePlayerId(item, id));
+}
+
+export function keepRtcSignals<T extends { id?: string; type: string; createdAt?: number; at?: number }>(
+  items: T[],
+  now = Date.now(),
+): T[] {
+  const fresh = items.filter((item) => now - (item.createdAt ?? item.at ?? 0) < RTC_MESSAGE_TTL_MS);
+  const vital = fresh.filter(
+    (item) => item.type === "offer" || item.type === "answer" || item.type === "ice-restart",
+  );
+  const ice = fresh.filter((item) => item.type === "ice-candidate").slice(-60);
+  const other = fresh.filter(
+    (item) => item.type !== "offer" && item.type !== "answer" && item.type !== "ice-restart" && item.type !== "ice-candidate",
+  );
+  const seen = new Set<string>();
+  const next: T[] = [];
+  for (const item of [...vital, ...other, ...ice]) {
+    if (item.id) {
+      if (seen.has(item.id)) continue;
+      seen.add(item.id);
+    }
+    next.push(item);
+  }
+  return next.slice(-160);
+}
+
 export function isOfferer(selfId: string, peerId: string) {
   return normalizePlayerId(selfId) < normalizePlayerId(peerId);
 }
@@ -174,6 +206,6 @@ export function signalingAllowed(input: {
   messageRoomId: string;
 }) {
   if (input.messageRoomId !== input.roomId) return false;
-  if (input.senderId === input.targetId) return false;
-  return input.memberIds.includes(input.senderId) && input.memberIds.includes(input.targetId);
+  if (samePlayerId(input.senderId, input.targetId)) return false;
+  return playerInList(input.senderId, input.memberIds) && playerInList(input.targetId, input.memberIds);
 }

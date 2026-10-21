@@ -1,6 +1,6 @@
 import type { Room } from "@/types/room";
 import { saveRoom, saveRoomNow } from "@/lib/store/rooms";
-import { RTC_MESSAGE_TTL_MS, isRtcMessageType, type RtcMessage } from "./rtc-protocol";
+import { RTC_MESSAGE_TTL_MS, isRtcMessageType, keepRtcSignals, samePlayerId, type RtcMessage } from "./rtc-protocol";
 
 export type RtcSignal = {
   from: string;
@@ -46,7 +46,7 @@ export function publishSignal(roomId: string, signal: RtcSignal) {
 export function persistSignal(room: Room, signal: RtcSignal) {
   const now = Date.now();
   const type: RtcMessage["type"] = signal.description?.type === "answer" ? "answer" : signal.description ? "offer" : "ice-candidate";
-  room.rtcSignals = [
+  room.rtcSignals = keepRtcSignals([
     ...(room.rtcSignals ?? []),
     {
       id: `legacy-${signal.from}-${signal.to}-${now}`,
@@ -62,30 +62,20 @@ export function persistSignal(room: Room, signal: RtcSignal) {
         candidate: signal.candidate ?? null,
       },
     },
-  ]
-    .filter((item) => now - (item.createdAt ?? item.at) < RTC_MESSAGE_TTL_MS)
-    .slice(-160);
+  ], now);
   if (signal.description) saveRoom(room);
 }
 
 export async function persistRtcMessage(room: Room, message: RtcMessage, flush = false) {
   const now = Date.now();
-  const seen = new Set<string>();
-  room.rtcSignals = [
+  room.rtcSignals = keepRtcSignals([
     ...(room.rtcSignals ?? []),
     {
       ...message,
       roomId: room.id,
       at: now,
     },
-  ]
-    .filter((item) => now - (item.createdAt ?? item.at) < RTC_MESSAGE_TTL_MS)
-    .filter((item) => {
-      if (!item.id || seen.has(item.id)) return false;
-      seen.add(item.id);
-      return true;
-    })
-    .slice(-160);
+  ], now);
   if (flush) await saveRoomNow(room);
   else saveRoom(room);
 }
@@ -98,7 +88,7 @@ export function takePersistedRtcMessages(room: Room, playerId: string): RtcMessa
     saveRoom(room);
   }
   return all
-    .filter((item) => item.to === playerId && isRtcMessageType(item.type))
+    .filter((item) => samePlayerId(item.to, playerId) && isRtcMessageType(item.type))
     .map((item) => ({
       id: item.id,
       roomId: room.id,
@@ -117,7 +107,7 @@ export function takePersistedRtcMessages(room: Room, playerId: string): RtcMessa
 export function ackRoomRtcMessages(room: Room, playerId: string, ids: string[]) {
   if (!ids.length) return;
   const drop = new Set(ids);
-  const next = (room.rtcSignals ?? []).filter((item) => item.to !== playerId || !drop.has(item.id));
+  const next = (room.rtcSignals ?? []).filter((item) => !samePlayerId(item.to, playerId) || !drop.has(item.id));
   if (next.length === (room.rtcSignals ?? []).length) return;
   room.rtcSignals = next;
   saveRoom(room);

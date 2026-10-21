@@ -92,7 +92,9 @@ export function WebrtcDebugPanel({
       {rows.length === 0 && <p className="mt-2">No remote peers yet.</p>}
       {rows.map((row) => (
         <div key={row.playerId} className="mt-2 border-t border-white/10 pt-2">
-          <p>peer {row.playerId.slice(0, 8)}</p>
+          <p>
+            peer {row.playerId.slice(0, 8)} · {row.offerer ? "offerer" : "answerer"}
+          </p>
           <p>pc {row.connectionState} · ice {row.iceConnectionState}</p>
           <p>gather {row.iceGatheringState} · sdp {row.signalingState}</p>
           <p>

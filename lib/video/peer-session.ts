@@ -96,7 +96,7 @@ export function shouldPollOffer(input: {
 export function shouldRetryStuckOffer(signalingState: string, hasRemoteDescription: boolean, lastAttemptAt: number, now = Date.now()) {
   if (hasRemoteDescription) return false;
   if (signalingState !== "have-local-offer") return false;
-  return now - lastAttemptAt > 8_000;
+  return now - lastAttemptAt > 12_000;
 }
 
 export function shouldForceRelay(input: {
@@ -105,13 +105,14 @@ export function shouldForceRelay(input: {
   connectionState: string;
   iceConnectionState: string;
   startedAt: number;
+  makingOffer?: boolean;
   now?: number;
 }) {
-  if (!input.turnConfigured || input.alreadyRelay) return false;
+  if (!input.turnConfigured || input.alreadyRelay || input.makingOffer) return false;
   if (input.connectionState === "connected" || input.iceConnectionState === "connected" || input.iceConnectionState === "completed") {
     return false;
   }
-  return (input.now ?? Date.now()) - input.startedAt > 4_000;
+  return (input.now ?? Date.now()) - input.startedAt > 12_000;
 }
 
 export function shouldRebuild(connectionState: string, iceConnectionState: string, retries: number) {
