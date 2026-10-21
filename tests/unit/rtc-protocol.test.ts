@@ -15,6 +15,7 @@ import {
   glareDecision,
   shouldIceRestart,
   shouldOffer,
+  shouldForceRelay,
   shouldPollOffer,
   shouldRebuild,
   shouldRetryStuckOffer,
@@ -50,8 +51,17 @@ describe("offer polling", () => {
         hasRemoteDescription: false,
       }),
     ).toBe(true);
-    expect(shouldRetryStuckOffer("have-local-offer", false, Date.now() - 6_000)).toBe(true);
+    expect(shouldRetryStuckOffer("have-local-offer", false, Date.now() - 9_000)).toBe(true);
     expect(shouldRetryStuckOffer("have-local-offer", false, Date.now() - 1_000)).toBe(false);
+    expect(
+      shouldForceRelay({
+        turnConfigured: true,
+        alreadyRelay: false,
+        connectionState: "connecting",
+        iceConnectionState: "checking",
+        startedAt: Date.now() - 5_000,
+      }),
+    ).toBe(true);
   });
 });
 

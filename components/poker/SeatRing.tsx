@@ -1,6 +1,7 @@
 "use client";
 
 import type { PublicPlayer } from "@/types/player";
+import { streamForPlayer } from "@/lib/video/peer-id";
 import { PlayerSeat } from "./PlayerSeat";
 
 function polar(angle: number, rx: number, ry: number) {
@@ -71,7 +72,7 @@ export function SeatRing({
                   isTurn={currentSeat === player.seatNumber}
                   fitted
                   localStream={player.id === youId ? localStream : null}
-                  remoteStream={remoteStreams?.[player.id] ?? null}
+                  remoteStream={streamForPlayer(remoteStreams, player.id)}
                   showCards={player.id === youId || Boolean(showCardsFor?.has(player.id))}
                   isYou={player.id === youId}
                   speakerMuted={speakerMuted}

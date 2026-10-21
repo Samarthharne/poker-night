@@ -10,6 +10,7 @@ import {
   glareDecision,
   localTrackFlags,
   remoteTrackFlags,
+  shouldForceRelay,
   shouldIceRestart,
   shouldOffer,
   shouldPollOffer,
@@ -18,7 +19,7 @@ import {
   type PeerDiagnostics,
 } from "./peer-session";
 import { onVideoSignal } from "./signal-client";
-import { createRtcMessage, mergeRtcMessages, nextRetryDelay, pairSessionId, type RtcMessage } from "./rtc-protocol";
+import { createRtcMessage, mergeRtcMessages, nextRetryDelay, normalizePlayerId, pairSessionId, type RtcMessage } from "./rtc-protocol";
 
 type Slot = {
   pc: RTCPeerConnection;
@@ -32,6 +33,7 @@ type Slot = {
   candidateType: PeerDiagnostics["candidateType"];
   transport: PeerDiagnostics["transport"];
   backoffUntil: number;
+  openedAt: number;
 };
 
 function senderForKind(pc: RTCPeerConnection, kind: string) {
@@ -57,6 +59,24 @@ function attachLocal(pc: RTCPeerConnection, stream: MediaStream | null) {
       pc.addTrack(track, stream);
     }
   }
+}
+
+function waitForIceGathering(pc: RTCPeerConnection, ms = 4_000) {
+  if (pc.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      pc.removeEventListener("icegatheringstatechange", onChange);
+      resolve();
+    };
+    const onChange = () => {
+      if (pc.iceGatheringState === "complete") finish();
+    };
+    pc.addEventListener("icegatheringstatechange", onChange);
+    window.setTimeout(finish, ms);
+  });
 }
 
 async function addQueuedIce(pc: RTCPeerConnection, queued: RTCIceCandidateInit[]) {
@@ -138,6 +158,13 @@ export function usePeerMedia(
     const slots = slotsRef.current;
     slots.clear();
     seenRef.current.clear();
+    const relayOnly = { current: forceRelay };
+    const iceTurn = { current: false };
+
+    function canonicalPeerId(id: string) {
+      const want = normalizePlayerId(id);
+      return wantedRef.current.find((item) => normalizePlayerId(item) === want) ?? id;
+    }
 
     async function post(message: RtcMessage) {
       const result = await sendRtcSignal(code, message);
@@ -193,7 +220,7 @@ export function usePeerMedia(
       }
       const pc = new RTCPeerConnection({
         ...iceRef.current,
-        iceTransportPolicy: forceRelay ? "relay" : "all",
+        iceTransportPolicy: relayOnly.current ? "relay" : "all",
       });
       const slot: Slot = {
         pc,
@@ -207,21 +234,12 @@ export function usePeerMedia(
         candidateType: "unknown",
         transport: "unknown",
         backoffUntil: 0,
+        openedAt: Date.now(),
       };
       slots.set(peerId, slot);
       attachLocal(pc, streamRef.current);
-      pc.onicecandidate = (event) => {
-        if (closed) return;
-        void post(
-          createRtcMessage({
-            roomId: roomIdRef.current,
-            from: selfRef.current ?? "",
-            to: peerId,
-            type: "ice-candidate",
-            sessionId: slot.sessionId,
-            payload: { candidate: event.candidate ? event.candidate.toJSON() : null },
-          }),
-        );
+      pc.onicecandidate = () => {
+        /* Candidates are sent in the complete SDP after gathering. */
       };
       pc.ontrack = (event) => {
         if (closed) return;
@@ -298,8 +316,10 @@ export function usePeerMedia(
         const offer = await slot.pc.createOffer({ iceRestart });
         if (closed || slot.pc.signalingState !== "stable") return;
         await slot.pc.setLocalDescription(offer);
+        await waitForIceGathering(slot.pc);
         const local = slot.pc.localDescription;
         if (!local) return;
+        slot.lastAttemptAt = Date.now();
         await post(
           createRtcMessage({
             roomId: roomIdRef.current,
@@ -335,6 +355,7 @@ export function usePeerMedia(
       if (!shouldRebuild(conn, iceState, slot.retryAttempt)) return;
       slot.retryAttempt += 1;
       slot.backoffUntil = Date.now() + nextRetryDelay(slot.retryAttempt);
+      if (iceTurn.current) relayOnly.current = true;
       rtcLog("rebuild peer", { peerId, attempt: slot.retryAttempt });
       await loadIce();
       drop(peerId);
@@ -345,23 +366,25 @@ export function usePeerMedia(
     async function apply(message: RtcMessage) {
       if (closed) return;
       const me = selfRef.current;
-      if (!me || message.from === me || (message.to && message.to !== me)) return;
+      if (!me || normalizePlayerId(message.from) === normalizePlayerId(me)) return;
+      if (message.to && normalizePlayerId(message.to) !== normalizePlayerId(me)) return;
       if (!iceReadyRef.current && message.type !== "hangup") return;
-      const decision = canApplyMessage(slots.get(message.from)?.sessionId, message, seenRef.current);
+      const peerId = canonicalPeerId(message.from);
+      const decision = canApplyMessage(slots.get(peerId)?.sessionId, message, seenRef.current);
       if (!decision.ok) return;
       seenRef.current.add(message.id);
       if (seenRef.current.size > 400) seenRef.current = new Set([...seenRef.current].slice(-200));
       if (message.type === "hangup") {
-        drop(message.from);
+        drop(peerId);
         return;
       }
-      const slot = ensureSlot(message.from, message.sessionId === "legacy" ? undefined : message.sessionId);
+      const slot = ensureSlot(peerId, message.sessionId === "legacy" ? undefined : message.sessionId);
       if (!slot) return;
       try {
         if (message.type === "offer" || message.type === "ice-restart") {
           const glare = glareDecision({
             selfId: me,
-            peerId: message.from,
+            peerId,
             makingOffer: slot.makingOffer,
             signalingState: slot.pc.signalingState,
             incomingType: "offer",
@@ -371,11 +394,11 @@ export function usePeerMedia(
             try {
               await slot.pc.setLocalDescription({ type: "rollback" });
             } catch {
-              drop(message.from);
-              if (!ensureSlot(message.from, message.sessionId)) return;
+              drop(peerId);
+              if (!ensureSlot(peerId, message.sessionId)) return;
             }
           }
-          const live = slots.get(message.from);
+          const live = slots.get(peerId);
           if (!live || !message.payload.sdp?.sdp) return;
           await live.pc.setRemoteDescription({
             type: "offer",
@@ -385,13 +408,14 @@ export function usePeerMedia(
           attachLocal(live.pc, streamRef.current);
           const answer = await live.pc.createAnswer();
           await live.pc.setLocalDescription(answer);
+          await waitForIceGathering(live.pc);
           const local = live.pc.localDescription;
           if (local) {
             await post(
               createRtcMessage({
                 roomId: roomIdRef.current,
                 from: me,
-                to: message.from,
+                to: peerId,
                 type: "answer",
                 sessionId: live.sessionId,
                 payload: { sdp: { type: local.type, sdp: local.sdp ?? undefined } },
@@ -412,15 +436,15 @@ export function usePeerMedia(
               await slot.pc.addIceCandidate(candidate);
             } catch (error) {
               slot.lastError = error instanceof Error ? error.message : "ICE candidate rejected.";
-              rtcLog("stale ice", { peerId: message.from });
+              rtcLog("stale ice", { peerId });
             }
           }
         } else if (message.type === "renegotiate") {
-          await negotiate(message.from);
+          await negotiate(peerId);
         }
       } catch (error) {
         slot.lastError = error instanceof Error ? error.message : "Signaling failed.";
-        rtcLog("apply failed", { peerId: message.from, type: message.type, error: slot.lastError });
+        rtcLog("apply failed", { peerId, type: message.type, error: slot.lastError });
       }
       await sendRtcSignal(code, { ackIds: [message.id] });
       publishDiag();
@@ -444,6 +468,22 @@ export function usePeerMedia(
         const slot = slots.get(id);
         if (!slot) continue;
         attachLocal(slot.pc, streamRef.current);
+        if (
+          shouldForceRelay({
+            turnConfigured: iceTurn.current,
+            alreadyRelay: relayOnly.current,
+            connectionState: slot.pc.connectionState,
+            iceConnectionState: slot.pc.iceConnectionState,
+            startedAt: slot.openedAt,
+          })
+        ) {
+          rtcLog("force relay", { peerId: id });
+          relayOnly.current = true;
+          drop(id);
+          if (!ensureSlot(id)) continue;
+          void negotiate(id);
+          continue;
+        }
         const hasRemote = Boolean(slot.pc.currentRemoteDescription);
         if (shouldRetryStuckOffer(slot.pc.signalingState, hasRemote, slot.lastAttemptAt)) {
           rtcLog("retry stuck offer", { peerId: id });
@@ -515,6 +555,7 @@ export function usePeerMedia(
       }
       iceRef.current = rtcConfiguration(ice.iceServers);
       iceReadyRef.current = true;
+      iceTurn.current = Boolean(ice.turnConfigured);
       setTurnConfigured(Boolean(ice.turnConfigured));
       setTurnWarning(ice.warning ?? null);
       setIceFetchStatus(ice.turnConfigured ? "ok" : "missing-turn");

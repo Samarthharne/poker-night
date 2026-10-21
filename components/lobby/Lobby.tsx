@@ -3,6 +3,7 @@
 import { initials } from "@/lib/utils";
 import type { RoomSnapshot } from "@/types/room";
 import { PlayerSeat } from "@/components/poker/PlayerSeat";
+import { streamForPlayer } from "@/lib/video/peer-id";
 
 export function Lobby({
   snapshot,
@@ -61,7 +62,7 @@ export function Lobby({
                 isTurn={false}
                 compact
                 localStream={player.id === localId ? localStream : null}
-                remoteStream={remoteStreams?.[player.id] ?? null}
+                remoteStream={streamForPlayer(remoteStreams, player.id)}
                 isYou={player.id === localId}
                 speakerMuted={speakerMuted}
                 onFrame={(ready) => onFrame?.(player.id, ready)}

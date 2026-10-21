@@ -12,6 +12,14 @@ export function hydratePlayerId(value: string) {
   return value;
 }
 
+export function streamForPlayer(streams: Record<string, MediaStream> | undefined, playerId: string) {
+  if (!streams) return null;
+  if (streams[playerId]) return streams[playerId];
+  const want = playerId.replace(/-/g, "").toLowerCase();
+  const hit = Object.entries(streams).find(([id]) => id.replace(/-/g, "").toLowerCase() === want);
+  return hit?.[1] ?? null;
+}
+
 export function playerIdFromPeer(name: string, peerIds: string[]) {
   const normalized = name.replace(/-/g, "").toLowerCase();
   const hit = peerIds.find((id) => normalized.endsWith(id.replace(/-/g, "").toLowerCase()));

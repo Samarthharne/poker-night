@@ -119,24 +119,29 @@ export function buildIceResponse(now = Date.now()): IceResponse {
   };
 }
 
+function hasTurn(servers: RTCIceServer[]) {
+  return servers.some((server) => {
+    const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
+    return urls.some((url) => url.startsWith("turn:") || url.startsWith("turns:"));
+  });
+}
+
 export async function buildIceResponseAsync(now = Date.now()): Promise<IceResponse> {
-  const ttlSeconds = Math.max(300, Number(serverEnv("TURN_TTL_SECONDS") || 21_600) || 21_600);
+  const fallback = buildIceResponse(now);
   try {
     const metered = await fetchMeteredIceServers();
-    if (metered && metered.some((server) => {
-      const urls = Array.isArray(server.urls) ? server.urls : [server.urls];
-      return urls.some((url) => url.startsWith("turn:") || url.startsWith("turns:"));
-    })) {
+    if (metered && hasTurn(metered)) {
+      const extraTurn = fallback.iceServers.filter((server) => hasTurn([server]));
       return {
-        iceServers: metered,
+        iceServers: [...metered, ...extraTurn],
         turnConfigured: true,
         warning: null,
-        ttlSeconds,
-        expiresAt: now + ttlSeconds * 1000,
+        ttlSeconds: fallback.ttlSeconds,
+        expiresAt: fallback.expiresAt,
       };
     }
   } catch {
     /* fall through to static / coturn env */
   }
-  return buildIceResponse(now);
+  return fallback;
 }
