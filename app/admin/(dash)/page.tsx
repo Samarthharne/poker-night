@@ -146,6 +146,15 @@ export default function AdminDashboard() {
           ),
         );
         toast.success("Players returned to the waiting room");
+      } else if (command === "close") {
+        setRooms((current) =>
+          current.map((room) =>
+            room.id === roomId
+              ? { ...room, status: "closed", phase: "closed", paused: false, locked: true, invitationActive: false }
+              : room,
+          ),
+        );
+        toast.success("Room finished. Invitation is closed.");
       } else {
         toast.success(command === "start" ? "Game started" : command.replace("-", " "));
       }
@@ -282,7 +291,7 @@ export default function AdminDashboard() {
                           Resume
                         </Button>
                       )}
-                      {room.status !== "lobby" && (
+                      {room.status !== "lobby" && room.status !== "closed" && (
                         <>
                           <Button size="sm" variant="outline" disabled={pendingId === room.id} onClick={() => run(room.id, "end")}>
                             End game
@@ -292,14 +301,34 @@ export default function AdminDashboard() {
                           </Button>
                         </>
                       )}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={pendingId === room.id}
-                        onClick={() => run(room.id, room.locked ? "unlock" : "lock")}
-                      >
-                        {room.locked ? "Unlock" : "Lock"}
-                      </Button>
+                      {room.status !== "closed" && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={pendingId === room.id}
+                            onClick={() => run(room.id, room.locked ? "unlock" : "lock")}
+                          >
+                            {room.locked ? "Unlock" : "Lock"}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            disabled={pendingId === room.id}
+                            onClick={() => {
+                              if (
+                                window.confirm(
+                                  `Finish ${room.name}? Players will leave the table and this invitation will stop working.`,
+                                )
+                              ) {
+                                void run(room.id, "close");
+                              }
+                            }}
+                          >
+                            Finish room
+                          </Button>
+                        </>
+                      )}
                       <Link href={`/admin/rooms/${room.id}`}>
                         <Button size="sm">Manage table</Button>
                       </Link>
@@ -327,9 +356,29 @@ export default function AdminDashboard() {
                   <span className="ml-2 text-xs uppercase text-white/45">{room.status}</span>
                   <span className="mt-1 block text-sm text-white/55">No one seated</span>
                 </Link>
-                <Link href={`/admin/rooms/${room.id}`}>
-                  <Button size="sm">Manage table</Button>
-                </Link>
+                <div className="flex flex-wrap items-center gap-2">
+                  {room.status !== "closed" && (
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      disabled={pendingId === room.id}
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `Finish ${room.name}? This invitation will stop working.`,
+                          )
+                        ) {
+                          void run(room.id, "close");
+                        }
+                      }}
+                    >
+                      Finish room
+                    </Button>
+                  )}
+                  <Link href={`/admin/rooms/${room.id}`}>
+                    <Button size="sm">Manage table</Button>
+                  </Link>
+                </div>
               </div>
             ))}
         </div>

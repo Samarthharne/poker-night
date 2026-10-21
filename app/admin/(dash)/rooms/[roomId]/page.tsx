@@ -116,6 +116,15 @@ export default function AdminRoomPage() {
       if (data.invitationUrl) {
         setLink(data.invitationUrl);
         toast.success("Invitation link ready");
+      } else if (commandName === "close") {
+        setLink("");
+        setRoom((current) =>
+          current
+            ? { ...current, status: "closed", phase: "closed", paused: false, locked: true, invitationActive: false }
+            : current,
+        );
+        setMessage("Room finished");
+        toast.success("Room finished. Invitation is closed.");
       } else {
         const paused =
           commandName === "pause" ? true : commandName === "resume" ? false : Boolean(data.snapshot?.game?.paused);
@@ -242,6 +251,21 @@ export default function AdminRoomPage() {
           <Button variant="outline" disabled={busy || lobby} onClick={() => command("lobby")}>
             {pending === "lobby" ? "Returning..." : "Back to lobby"}
           </Button>
+          <Button
+            variant="danger"
+            disabled={busy || room.status === "closed"}
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Finish ${room.name}? Players will leave the table and this invitation will stop working.`,
+                )
+              ) {
+                void command("close");
+              }
+            }}
+          >
+            {pending === "close" ? "Finishing..." : "Finish room"}
+          </Button>
         </div>
       </section>
 
@@ -319,8 +343,21 @@ export default function AdminRoomPage() {
           <Button variant="danger" size="sm" disabled={busy} onClick={() => command("revoke")}>
             Revoke invitation
           </Button>
-          <Button variant="danger" size="sm" disabled={busy} onClick={() => command("close")}>
-            Close room
+          <Button
+            variant="danger"
+            size="sm"
+            disabled={busy || room.status === "closed"}
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Finish ${room.name}? Players will leave the table and this invitation will stop working.`,
+                )
+              ) {
+                void command("close");
+              }
+            }}
+          >
+            {pending === "close" ? "Finishing..." : "Finish room"}
           </Button>
         </div>
       </section>

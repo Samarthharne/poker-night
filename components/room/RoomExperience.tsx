@@ -230,6 +230,27 @@ export function RoomExperience({ code }: { code: string }) {
     );
   }
 
+  if (snapshot.status === "closed") {
+    return (
+      <div className="grid min-h-dvh place-items-center px-6 text-center">
+        <div>
+          <h1 className="font-display text-3xl">This room has finished</h1>
+          <p className="mt-2 text-white/60">The administrator ended the table.</p>
+          <Button
+            className="mt-6"
+            onClick={() => {
+              media.stop();
+              clearRoomToken(code);
+              router.push("/");
+            }}
+          >
+            Back home
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   const you = snapshot.you;
   const complete = snapshot.status === "complete" || snapshot.game?.phase === "complete";
 
