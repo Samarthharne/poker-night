@@ -16,9 +16,13 @@ export function mintTurnCredential(secret: string, nowMs = Date.now(), ttlSecond
   return { username, credential, expires, ttlSeconds: ttl };
 }
 
+function serverEnv(name: string) {
+  return process.env[name] ?? "";
+}
+
 export function meteredCredentialsUrl() {
-  const apiKey = process.env.METERED_API_KEY ?? "";
-  const host = (process.env.METERED_DOMAIN ?? "").replace(/^https?:\/\//, "").trim();
+  const apiKey = serverEnv("METERED_API_KEY");
+  const host = serverEnv("METERED_DOMAIN").replace(/^https?:\/\//, "").trim();
   if (!apiKey || !host) return null;
   return `https://${host}/api/v1/turn/credentials?apiKey=${encodeURIComponent(apiKey)}`;
 }
@@ -55,11 +59,11 @@ export async function fetchMeteredIceServers() {
 
 export function buildIceResponse(now = Date.now()): IceResponse {
   const iceServers: RTCIceServer[] = [...stunServers()];
-  const turnUrls = parseTurnUrls(process.env.TURN_URLS);
-  const staticUser = process.env.TURN_USERNAME ?? "";
-  const staticPass = process.env.TURN_CREDENTIAL ?? "";
-  const secret = process.env.TURN_SECRET ?? "";
-  const ttlSeconds = Math.max(300, Number(process.env.TURN_TTL_SECONDS ?? 21_600) || 21_600);
+  const turnUrls = parseTurnUrls(serverEnv("TURN_URLS"));
+  const staticUser = serverEnv("TURN_USERNAME");
+  const staticPass = serverEnv("TURN_CREDENTIAL");
+  const secret = serverEnv("TURN_SECRET");
+  const ttlSeconds = Math.max(300, Number(serverEnv("TURN_TTL_SECONDS") || 21_600) || 21_600);
 
   if (turnUrls.length && secret) {
     const minted = mintTurnCredential(secret, now, ttlSeconds);
@@ -107,7 +111,7 @@ export function buildIceResponse(now = Date.now()): IceResponse {
 }
 
 export async function buildIceResponseAsync(now = Date.now()): Promise<IceResponse> {
-  const ttlSeconds = Math.max(300, Number(process.env.TURN_TTL_SECONDS ?? 21_600) || 21_600);
+  const ttlSeconds = Math.max(300, Number(serverEnv("TURN_TTL_SECONDS") || 21_600) || 21_600);
   try {
     const metered = await fetchMeteredIceServers();
     if (metered && metered.some((server) => {

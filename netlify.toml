@@ -3,9 +3,9 @@
 
 [build.environment]
   NODE_VERSION = "20"
-  # Next inlines server env into functions; these keys must stay off the public site.
-  SECRETS_SCAN_OMIT_KEYS = "METERED_API_KEY,METERED_DOMAIN"
-  SECRETS_SCAN_OMIT_PATHS = ".next"
+  # Next inlines server env into function bundles; omit those keys from secret scan.
+  SECRETS_SCAN_OMIT_KEYS = "METERED_API_KEY,METERED_DOMAIN,TURN_USERNAME,TURN_CREDENTIAL,TURN_SECRET,TURN_URLS,ADMIN_SESSION_SECRET,ADMIN_EMAIL,ADMIN_PASSWORD"
+  SECRETS_SCAN_OMIT_PATHS = ".next,.netlify"
 
 [[plugins]]
   package = "@netlify/plugin-nextjs"
