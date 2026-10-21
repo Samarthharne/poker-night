@@ -107,10 +107,14 @@ export function usePeerMedia(
         if (existing.kind === track.kind && existing.id !== track.id) stream.removeTrack(existing);
       }
       if (!stream.getTracks().includes(track)) stream.addTrack(track);
-      const next = stream;
+      const next = new MediaStream(stream.getTracks());
+      remoteMedia.current.set(peerId, next);
       setRemoteStreams((prev) => ({ ...prev, [peerId]: next }));
-      track.onunmute = () => setRemoteStreams((prev) => ({ ...prev, [peerId]: next }));
-      track.onended = () => setRemoteStreams((prev) => ({ ...prev, [peerId]: next }));
+      track.onunmute = () => {
+        const copy = new MediaStream(next.getTracks());
+        remoteMedia.current.set(peerId, copy);
+        setRemoteStreams((prev) => ({ ...prev, [peerId]: copy }));
+      };
     }
 
     async function sendOffer(peerId: string, slot: PeerSlot) {

@@ -21,46 +21,55 @@ export function VideoPlayer({
   label?: string;
   name?: string;
 }) {
-  const node = useRef<HTMLVideoElement | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const active = enabled ?? cameraEnabled ?? cameraOn ?? Boolean(stream);
   const title = label ?? name;
+  const trackKey = stream?.getTracks().map((track) => `${track.id}:${track.readyState}:${track.enabled}`).join("|") ?? "";
 
   useEffect(() => {
-    const video = node.current;
+    const video = videoRef.current;
+    const audio = audioRef.current;
     if (!video) return;
     if (!active || !stream) {
       video.srcObject = null;
+      if (audio) audio.srcObject = null;
       return;
     }
-    if (video.srcObject !== stream) video.srcObject = stream;
+    video.srcObject = stream;
+    video.muted = true;
     video.playsInline = true;
-    video.autoplay = true;
-    const play = () => {
-      video.muted = true;
-      void video.play().then(() => {
-        video.muted = muted;
-        if (!muted) video.volume = 1;
-      }).catch(() => undefined);
+    void video.play().catch(() => undefined);
+    if (audio) {
+      if (muted) {
+        audio.srcObject = null;
+        audio.pause();
+      } else {
+        audio.srcObject = stream;
+        audio.muted = false;
+        audio.volume = 1;
+        void audio.play().catch(() => undefined);
+      }
+    }
+    const unlock = () => {
+      void video.play().catch(() => undefined);
+      if (audio && !muted) void audio.play().catch(() => undefined);
     };
-    play();
-    const unlock = () => play();
     window.addEventListener("pointerdown", unlock);
-    stream.getTracks().forEach((track) => {
-      track.onunmute = play;
-    });
-    return () => {
-      window.removeEventListener("pointerdown", unlock);
-    };
-  }, [active, muted, stream]);
+    return () => window.removeEventListener("pointerdown", unlock);
+  }, [active, muted, stream, trackKey]);
 
   return (
-    <video
-      ref={node}
-      className={`h-full w-full object-cover${mirror ? " -scale-x-100" : ""}`}
-      autoPlay
-      playsInline
-      muted={muted}
-      aria-label={title}
-    />
+    <>
+      <video
+        ref={videoRef}
+        className={`h-full w-full object-cover${mirror ? " -scale-x-100" : ""}`}
+        autoPlay
+        playsInline
+        muted
+        aria-label={title}
+      />
+      <audio ref={audioRef} autoPlay playsInline className="hidden" />
+    </>
   );
 }

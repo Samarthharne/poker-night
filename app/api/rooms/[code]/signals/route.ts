@@ -9,6 +9,7 @@ import {
   takePersistedSignals,
   type RtcSignal,
 } from "@/lib/video/signal-bus";
+import { appendRtcSignal, dedupeSignals, readRtcSignals } from "@/lib/video/signal-store";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,8 @@ export async function POST(
   }
   publishSignal(loaded.room.id, signal);
   persistSignal(loaded.room, signal);
-  await persistRooms();
+  await appendRtcSignal(loaded.room.id, signal, req);
+  if (signal.description) await persistRooms();
   return NextResponse.json({ ok: true });
 }
 
@@ -55,7 +57,10 @@ export async function GET(
   const loaded = await loadRoomPlayer(req, code);
   if ("error" in loaded) return loaded.error;
   if (new URL(req.url).searchParams.get("poll") === "1") {
-    const signals = takePersistedSignals(loaded.room, loaded.player.id);
+    const signals = dedupeSignals([
+      ...(await readRtcSignals(loaded.room.id, loaded.player.id, req)),
+      ...takePersistedSignals(loaded.room, loaded.player.id),
+    ]);
     return NextResponse.json({ signals });
   }
   const roomId = loaded.room.id;
