@@ -6,12 +6,28 @@ import { rtcConfiguration } from "./ice";
 import { onVideoSignal } from "./signal-client";
 
 type Description = { type: RTCSdpType; sdp?: string };
+type Candidate = RTCIceCandidateInit;
 
 type PeerSlot = {
   pc: RTCPeerConnection;
   makingOffer: boolean;
   ignoreOffer: boolean;
 };
+
+function candidatePayload(candidate: RTCIceCandidate): Candidate {
+  return {
+    candidate: candidate.candidate,
+    sdpMid: candidate.sdpMid,
+    sdpMLineIndex: candidate.sdpMLineIndex,
+    usernameFragment: candidate.usernameFragment,
+  };
+}
+
+function trackKind(transceiver: RTCRtpTransceiver): "audio" | "video" | null {
+  const kind = transceiver.receiver.track?.kind ?? transceiver.sender.track?.kind;
+  if (kind === "audio" || kind === "video") return kind;
+  return null;
+}
 
 export function usePeerMedia(
   code: string,
@@ -22,7 +38,7 @@ export function usePeerMedia(
 ) {
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const slots = useRef(new Map<string, PeerSlot>());
-  const pendingIce = useRef(new Map<string, RTCIceCandidateInit[]>());
+  const pendingIce = useRef(new Map<string, Candidate[]>());
   const remoteMedia = useRef(new Map<string, MediaStream>());
   const seen = useRef(new Set<string>());
   const streamRef = useRef(localStream);
@@ -34,9 +50,9 @@ export function usePeerMedia(
   useEffect(() => {
     if (!enabled || !code || !selfId) return;
     let closed = false;
-    const wanted = new Set(peersKey ? peersKey.split(",") : []);
+    const wanted = new Set(peersKey ? peersKey.split(",").filter(Boolean) : []);
 
-    async function post(to: string, body: { description?: Description; candidate?: RTCIceCandidateInit }) {
+    async function post(to: string, body: { description?: Description; candidate?: Candidate }) {
       const token = getRoomToken(code);
       await fetch(`/api/rooms/${encodeURIComponent(code)}/signals`, {
         method: "POST",
@@ -52,24 +68,28 @@ export function usePeerMedia(
       return (selfRef.current ?? "") < peerId;
     }
 
-    function signalKey(signal: { from: string; description?: Description; candidate?: RTCIceCandidateInit | null }) {
+    function signalKey(signal: { from: string; description?: Description; candidate?: Candidate | null }) {
       return [
         signal.from,
         signal.description?.type ?? "",
-        signal.description?.sdp?.slice(0, 48) ?? "",
+        signal.description?.sdp?.slice(0, 64) ?? "",
         signal.candidate?.candidate ?? "",
+        signal.candidate?.sdpMid ?? "",
       ].join("|");
     }
 
     function attachLocal(pc: RTCPeerConnection) {
       const stream = streamRef.current;
-      for (const transceiver of pc.getTransceivers()) {
-        const kind = transceiver.receiver.track?.kind;
-        if (kind !== "audio" && kind !== "video") continue;
+      for (const kind of ["audio", "video"] as const) {
         const track = stream?.getTracks().find((item) => item.kind === kind) ?? null;
-        if (transceiver.sender.track !== track) {
-          void transceiver.sender.replaceTrack(track).catch(() => undefined);
+        const transceiver = pc.getTransceivers().find((item) => trackKind(item) === kind);
+        if (transceiver) {
+          if (transceiver.sender.track !== track) {
+            void transceiver.sender.replaceTrack(track).catch(() => undefined);
+          }
+          continue;
         }
+        if (track && stream) pc.addTrack(track, stream);
       }
     }
 
@@ -87,9 +107,7 @@ export function usePeerMedia(
       if (!stream.getTracks().includes(track)) stream.addTrack(track);
       const next = stream;
       setRemoteStreams((prev) => ({ ...prev, [peerId]: next }));
-      track.onunmute = () => {
-        setRemoteStreams((prev) => ({ ...prev, [peerId]: next }));
-      };
+      track.onunmute = () => setRemoteStreams((prev) => ({ ...prev, [peerId]: next }));
     }
 
     function ensure(peerId: string) {
@@ -105,7 +123,7 @@ export function usePeerMedia(
       slots.current.set(peerId, slot);
       pc.onicecandidate = (event) => {
         if (!event.candidate) return;
-        void post(peerId, { candidate: event.candidate.toJSON() });
+        void post(peerId, { candidate: candidatePayload(event.candidate) });
       };
       pc.ontrack = (event) => {
         const local = streamRef.current;
@@ -118,7 +136,8 @@ export function usePeerMedia(
           try {
             slot.makingOffer = true;
             attachLocal(pc);
-            await pc.setLocalDescription(await pc.createOffer());
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
             const local = pc.localDescription;
             if (local && !closed) {
               await post(peerId, { description: { type: local.type, sdp: local.sdp } });
@@ -131,7 +150,7 @@ export function usePeerMedia(
         })();
       };
       pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") {
+        if (pc.iceConnectionState === "failed") {
           try {
             pc.restartIce();
           } catch {
@@ -143,13 +162,13 @@ export function usePeerMedia(
       return slot;
     }
 
-    async function take(signal: { from: string; description?: Description; candidate?: RTCIceCandidateInit | null }) {
+    async function take(signal: { from: string; description?: Description; candidate?: Candidate | null }) {
       if (!wanted.has(signal.from) || signal.from === selfRef.current) return;
       const key = signalKey(signal);
       if (seen.current.has(key)) return;
       seen.current.add(key);
-      if (seen.current.size > 400) {
-        seen.current = new Set([...seen.current].slice(-200));
+      if (seen.current.size > 500) {
+        seen.current = new Set([...seen.current].slice(-250));
       }
       const slot = ensure(signal.from);
       const pc = slot.pc;
@@ -158,8 +177,11 @@ export function usePeerMedia(
           const offerCollision =
             signal.description.type === "offer" && (slot.makingOffer || pc.signalingState !== "stable");
           const polite = !isOfferer(signal.from);
-          slot.ignoreOffer = offerCollision && !polite;
-          if (slot.ignoreOffer) return;
+          slot.ignoreOffer = !!(offerCollision && !polite);
+          if (slot.ignoreOffer) {
+            seen.current.delete(key);
+            return;
+          }
           if (offerCollision && polite) {
             await Promise.all([
               pc.setLocalDescription({ type: "rollback" }).catch(() => undefined),
@@ -173,7 +195,8 @@ export function usePeerMedia(
           for (const candidate of queued) await pc.addIceCandidate(candidate).catch(() => undefined);
           if (signal.description.type === "offer") {
             attachLocal(pc);
-            await pc.setLocalDescription(await pc.createAnswer());
+            const answer = await pc.createAnswer();
+            await pc.setLocalDescription(answer);
             const local = pc.localDescription;
             if (local) await post(signal.from, { description: { type: local.type, sdp: local.sdp } });
           }
@@ -219,7 +242,7 @@ export function usePeerMedia(
       });
       if (!res.ok) return;
       const body = (await res.json()) as {
-        signals?: Array<{ from: string; description?: Description; candidate?: RTCIceCandidateInit | null }>;
+        signals?: Array<{ from: string; description?: Description; candidate?: Candidate | null }>;
       };
       for (const signal of body.signals ?? []) {
         await take(signal).catch(() => undefined);
@@ -229,7 +252,7 @@ export function usePeerMedia(
     void drain();
     const retry = setInterval(() => {
       void drain().catch(() => undefined);
-    }, 700);
+    }, 600);
 
     return () => {
       closed = true;
@@ -239,14 +262,13 @@ export function usePeerMedia(
   }, [code, enabled, peersKey, selfId]);
 
   useEffect(() => {
-    if (!localStream) return;
     for (const slot of slots.current.values()) {
       const pc = slot.pc;
-      for (const transceiver of pc.getTransceivers()) {
-        const kind = transceiver.receiver.track?.kind;
-        if (kind !== "audio" && kind !== "video") continue;
-        const track = localStream.getTracks().find((item) => item.kind === kind) ?? null;
-        if (transceiver.sender.track !== track) {
+      const stream = localStream;
+      for (const kind of ["audio", "video"] as const) {
+        const track = stream?.getTracks().find((item) => item.kind === kind) ?? null;
+        const transceiver = pc.getTransceivers().find((item) => trackKind(item) === kind);
+        if (transceiver && transceiver.sender.track !== track) {
           void transceiver.sender.replaceTrack(track).catch(() => undefined);
         }
       }

@@ -49,13 +49,12 @@ export function RoomExperience({ code }: { code: string }) {
     () => snapshot?.players.filter((player) => player.id !== snapshot.you?.id).map((player) => player.id) ?? [],
     [snapshot],
   );
-  const [peersOn, setPeersOn] = useState(false);
   const remoteStreams = usePeerMedia(
     code,
     snapshot?.you?.id,
     peerIds,
     media.stream,
-    joined && peersOn,
+    joined,
   );
   const cameraBooted = useRef(false);
 
@@ -67,20 +66,11 @@ export function RoomExperience({ code }: { code: string }) {
   }, []);
 
   useEffect(() => {
-    if (!joined) return;
-    if (media.stream) {
-      setPeersOn(true);
-      return;
-    }
-    if (!cameraBooted.current) {
-      cameraBooted.current = true;
-      void media.start(true, true).then((stream) => {
-        if (stream) void sendMedia(code, { cameraEnabled: true, microphoneEnabled: true });
-        setPeersOn(true);
-      });
-    }
-    const wait = window.setTimeout(() => setPeersOn(true), 2000);
-    return () => window.clearTimeout(wait);
+    if (!joined || media.stream || cameraBooted.current) return;
+    cameraBooted.current = true;
+    void media.start(true, true).then((stream) => {
+      if (stream) void sendMedia(code, { cameraEnabled: true, microphoneEnabled: true });
+    });
   }, [code, joined, media.stream, media.start]);
 
   useEffect(() => {

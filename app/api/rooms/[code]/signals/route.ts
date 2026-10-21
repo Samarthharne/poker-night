@@ -43,7 +43,7 @@ export async function POST(
   }
   publishSignal(loaded.room.id, signal);
   persistSignal(loaded.room, signal);
-  await persistRooms();
+  if (signal.description) await persistRooms();
   return NextResponse.json({ ok: true });
 }
 
@@ -56,7 +56,6 @@ export async function GET(
   if ("error" in loaded) return loaded.error;
   if (new URL(req.url).searchParams.get("poll") === "1") {
     const signals = takePersistedSignals(loaded.room, loaded.player.id);
-    if (signals.length) await persistRooms();
     return NextResponse.json({ signals });
   }
   const roomId = loaded.room.id;

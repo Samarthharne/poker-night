@@ -35,7 +35,6 @@ export function publishSignal(roomId: string, signal: RtcSignal) {
   const listeners = store.waiters.get(id);
   if (listeners && listeners.size > 0) {
     for (const listener of listeners) listener(signal);
-    return;
   }
   const queue = store.queues.get(id) ?? [];
   queue.push(signal);

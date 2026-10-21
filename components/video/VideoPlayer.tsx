@@ -41,7 +41,7 @@ export function VideoPlayer({
       }).catch(() => undefined);
     };
     play();
-    stream.getVideoTracks().forEach((track) => {
+    stream.getTracks().forEach((track) => {
       track.onunmute = play;
     });
   }, [active, muted, stream]);
