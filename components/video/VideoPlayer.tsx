@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 export function VideoPlayer({
   stream,
@@ -11,6 +11,7 @@ export function VideoPlayer({
   mirror = false,
   label,
   name,
+  fallback,
 }: {
   stream?: MediaStream | null;
   enabled?: boolean;
@@ -20,23 +21,34 @@ export function VideoPlayer({
   mirror?: boolean;
   label?: string;
   name?: string;
+  fallback?: ReactNode;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const [ready, setReady] = useState(false);
   const active = enabled ?? cameraEnabled ?? cameraOn ?? Boolean(stream);
   const title = label ?? name;
-  const trackKey = stream?.getTracks().map((track) => `${track.id}:${track.readyState}:${track.enabled}`).join("|") ?? "";
+  const liveVideo = Boolean(
+    stream?.getVideoTracks().some((track) => track.readyState === "live" && track.enabled),
+  );
+
+  useEffect(() => {
+    setReady(false);
+  }, [stream]);
 
   useEffect(() => {
     const video = videoRef.current;
     const audio = audioRef.current;
     if (!video) return;
     if (!active || !stream) {
-      video.srcObject = null;
+      if (video.srcObject) video.srcObject = null;
       if (audio) audio.srcObject = null;
+      setReady(false);
       return;
     }
-    video.srcObject = stream;
+    if (video.srcObject !== stream) {
+      video.srcObject = stream;
+    }
     video.muted = true;
     video.playsInline = true;
     void video.play().catch(() => undefined);
@@ -44,10 +56,12 @@ export function VideoPlayer({
       if (muted) {
         audio.srcObject = null;
         audio.pause();
-      } else {
+      } else if (audio.srcObject !== stream) {
         audio.srcObject = stream;
         audio.muted = false;
         audio.volume = 1;
+        void audio.play().catch(() => undefined);
+      } else {
         void audio.play().catch(() => undefined);
       }
     }
@@ -57,18 +71,24 @@ export function VideoPlayer({
     };
     window.addEventListener("pointerdown", unlock);
     return () => window.removeEventListener("pointerdown", unlock);
-  }, [active, muted, stream, trackKey]);
+  }, [active, muted, stream]);
+
+  const showVideo = Boolean(active && stream && liveVideo && ready);
 
   return (
     <>
       <video
         ref={videoRef}
-        className={`h-full w-full object-cover${mirror ? " -scale-x-100" : ""}`}
+        className={`h-full w-full object-cover${mirror ? " -scale-x-100" : ""}${showVideo ? "" : " opacity-0"}`}
         autoPlay
         playsInline
         muted
         aria-label={title}
+        onPlaying={() => {
+          if (liveVideo) setReady(true);
+        }}
       />
+      {!showVideo && fallback}
       <audio ref={audioRef} autoPlay playsInline className="hidden" />
     </>
   );

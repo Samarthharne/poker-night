@@ -39,9 +39,6 @@ export function PlayerSeat({
   const remote =
     remoteStream && localStream && remoteStream.id === localStream.id ? null : remoteStream;
   const stream = isYou ? localStream ?? null : remote ?? null;
-  const liveVideo = Boolean(
-    stream?.getVideoTracks().some((track) => track.readyState !== "ended" && track.enabled !== false),
-  );
   const hasMedia = Boolean(stream?.getTracks().some((track) => track.readyState !== "ended"));
 
   return (
@@ -63,7 +60,7 @@ export function PlayerSeat({
     >
       <div
         className={cn(
-          "relative overflow-hidden bg-black",
+          "relative overflow-hidden bg-[#120c10]",
           fitted ? "h-14 rounded-t-2xl sm:h-[4.5rem] lg:h-20" : compact ? "h-[72px] rounded-t-2xl" : "h-[96px] rounded-t-3xl sm:h-[112px]",
         )}
       >
@@ -73,14 +70,14 @@ export function PlayerSeat({
           muted={Boolean(isYou) || Boolean(speakerMuted)}
           mirror={Boolean(isYou)}
           label={player.displayName}
-        />
-        {!liveVideo && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[#120c10]">
-            <div className="flex h-12 w-12 items-center justify-center rounded-full bg-burgundy text-lg font-semibold">
-              {initials(player.displayName)}
+          fallback={
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[#120c10]">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-burgundy text-lg font-semibold">
+                {initials(player.displayName)}
+              </div>
             </div>
-          </div>
-        )}
+          }
+        />
         {reconnecting && (
           <div className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1 text-center text-[10px] uppercase tracking-wider text-amber-200">
             {player.displayName} reconnecting...
