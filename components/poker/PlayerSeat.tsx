@@ -44,6 +44,7 @@ export function PlayerSeat({
     remoteStream && localStream && remoteStream.id === localStream.id ? null : remoteStream;
   const stream = isYou ? localStream ?? null : remote ?? null;
   const hasMedia = Boolean(stream?.getTracks().some((track) => track.readyState !== "ended"));
+  const hasVideo = Boolean(stream?.getVideoTracks().some((track) => track.readyState !== "ended"));
 
   return (
     <div
@@ -70,14 +71,14 @@ export function PlayerSeat({
       >
         <VideoPlayer
           stream={stream ?? null}
-          enabled={hasMedia}
+          enabled={Boolean(stream)}
           muted={Boolean(isYou) || Boolean(speakerMuted)}
           mirror={Boolean(isYou)}
           label={player.displayName}
           fallback={
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[#120c10]">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-burgundy text-lg font-semibold">
-                {hasMedia && !isYou ? "…" : initials(player.displayName)}
+                {hasMedia && !isYou && !hasVideo ? "…" : initials(player.displayName)}
               </div>
             </div>
           }

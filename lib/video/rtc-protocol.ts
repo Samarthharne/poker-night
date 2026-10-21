@@ -34,6 +34,11 @@ export function isOfferer(selfId: string, peerId: string) {
   return normalizePlayerId(selfId) < normalizePlayerId(peerId);
 }
 
+export function pairSessionId(selfId: string, peerId: string) {
+  const [left, right] = [normalizePlayerId(selfId), normalizePlayerId(peerId)].sort();
+  return `${left}:${right}`;
+}
+
 export function isRtcMessageType(value: unknown): value is RtcMessageType {
   return typeof value === "string" && (RTC_MESSAGE_TYPES as readonly string[]).includes(value);
 }

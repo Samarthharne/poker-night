@@ -67,6 +67,38 @@ export function shouldOffer(selfId: string, peerId: string) {
   return isOfferer(selfId, peerId);
 }
 
+export function shouldPollOffer(input: {
+  connectionState: string;
+  iceConnectionState: string;
+  signalingState: string;
+  hasRemoteDescription: boolean;
+}) {
+  if (input.signalingState !== "stable") return false;
+  if (input.hasRemoteDescription) return false;
+  if (
+    input.connectionState === "connected" ||
+    input.connectionState === "connecting" ||
+    input.connectionState === "closing" ||
+    input.connectionState === "closed"
+  ) {
+    return false;
+  }
+  if (
+    input.iceConnectionState === "checking" ||
+    input.iceConnectionState === "connected" ||
+    input.iceConnectionState === "completed"
+  ) {
+    return false;
+  }
+  return true;
+}
+
+export function shouldRetryStuckOffer(signalingState: string, hasRemoteDescription: boolean, lastAttemptAt: number, now = Date.now()) {
+  if (hasRemoteDescription) return false;
+  if (signalingState !== "have-local-offer") return false;
+  return now - lastAttemptAt > 5_000;
+}
+
 export function shouldRebuild(connectionState: string, iceConnectionState: string, retries: number) {
   if (retries >= 5) return false;
   return connectionState === "failed" || iceConnectionState === "failed";

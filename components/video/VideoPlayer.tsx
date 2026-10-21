@@ -37,7 +37,7 @@ export function VideoPlayer({
   const active = enabled ?? cameraEnabled ?? cameraOn ?? Boolean(stream);
   const title = label ?? name;
   const liveVideo = Boolean(
-    stream?.getVideoTracks().some((track) => track.readyState === "live" && track.enabled),
+    stream?.getVideoTracks().some((track) => track.readyState !== "ended"),
   );
 
   useEffect(() => {
@@ -66,6 +66,8 @@ export function VideoPlayer({
     video.addEventListener("loadedmetadata", markReady);
     video.addEventListener("loadeddata", markReady);
     video.addEventListener("playing", markReady);
+    const onUnmute = () => markReady();
+    stream.getVideoTracks().forEach((track) => track.addEventListener("unmute", onUnmute));
     void video.play().catch(() => undefined);
     if (video.videoWidth > 0) markReady();
     if (audio) {
@@ -98,6 +100,7 @@ export function VideoPlayer({
       video.removeEventListener("loadedmetadata", markReady);
       video.removeEventListener("loadeddata", markReady);
       video.removeEventListener("playing", markReady);
+      stream.getVideoTracks().forEach((track) => track.removeEventListener("unmute", onUnmute));
     };
   }, [active, muted, stream]);
 

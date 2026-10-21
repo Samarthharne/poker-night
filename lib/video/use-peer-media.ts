@@ -12,11 +12,13 @@ import {
   remoteTrackFlags,
   shouldIceRestart,
   shouldOffer,
+  shouldPollOffer,
   shouldRebuild,
+  shouldRetryStuckOffer,
   type PeerDiagnostics,
 } from "./peer-session";
 import { onVideoSignal } from "./signal-client";
-import { createRtcMessage, nextRetryDelay, type RtcMessage } from "./rtc-protocol";
+import { createRtcMessage, nextRetryDelay, pairSessionId, type RtcMessage } from "./rtc-protocol";
 
 type Slot = {
   pc: RTCPeerConnection;
@@ -32,16 +34,23 @@ type Slot = {
   backoffUntil: number;
 };
 
+function senderForKind(pc: RTCPeerConnection, kind: string) {
+  return (
+    pc.getSenders().find((item) => item.track?.kind === kind) ??
+    pc.getTransceivers().find((item) => item.receiver.track?.kind === kind)?.sender
+  );
+}
+
 function attachLocal(pc: RTCPeerConnection, stream: MediaStream | null) {
+  const kinds = ["audio", "video"] as const;
   if (!stream) {
-    if (pc.getTransceivers().length === 0) {
-      pc.addTransceiver("audio", { direction: "sendrecv" });
-      pc.addTransceiver("video", { direction: "sendrecv" });
+    for (const kind of kinds) {
+      if (!senderForKind(pc, kind)) pc.addTransceiver(kind, { direction: "sendrecv" });
     }
     return;
   }
   for (const track of stream.getTracks()) {
-    const sender = pc.getSenders().find((item) => item.track?.kind === track.kind);
+    const sender = senderForKind(pc, track.kind);
     if (sender) {
       if (sender.track?.id !== track.id) void sender.replaceTrack(track);
     } else {
@@ -164,9 +173,16 @@ export function usePeerMedia(
 
     function ensureSlot(peerId: string, sessionId?: string) {
       if (!iceReadyRef.current) return null;
+      const pairId = pairSessionId(selfRef.current ?? "", peerId);
+      const incoming = sessionId && sessionId !== "legacy" ? sessionId : pairId;
       const existing = slots.get(peerId);
       if (existing && existing.pc.connectionState !== "closed") {
-        if (sessionId && sessionId !== existing.sessionId && sessionId !== "legacy") {
+        if (sessionId && sessionId !== "legacy" && sessionId !== existing.sessionId) {
+          const unused = existing.pc.signalingState === "stable" && !existing.pc.currentRemoteDescription;
+          if (unused) {
+            existing.sessionId = sessionId;
+            return existing;
+          }
           drop(peerId);
         } else {
           return existing;
@@ -178,7 +194,7 @@ export function usePeerMedia(
       });
       const slot: Slot = {
         pc,
-        sessionId: sessionId && sessionId !== "legacy" ? sessionId : crypto.randomUUID(),
+        sessionId: incoming,
         iceQueue: [],
         makingOffer: false,
         retryAttempt: existing?.retryAttempt ?? 0,
@@ -206,13 +222,18 @@ export function usePeerMedia(
       };
       pc.ontrack = (event) => {
         if (closed) return;
+        const inbound = event.streams[0];
         setRemoteStreams((prev) => {
-          const tracks = [...(event.streams[0]?.getTracks() ?? prev[peerId]?.getTracks() ?? []), event.track];
-          const unique = [...new Map(tracks.map((item) => [item.id, item])).values()].filter(
-            (item) => item.readyState !== "ended",
+          if (inbound) {
+            if (prev[peerId] === inbound) return prev;
+            return { ...prev, [peerId]: inbound };
+          }
+          const tracks = [...(prev[peerId]?.getTracks() ?? []), event.track].filter(
+            (item, index, list) => item.readyState !== "ended" && list.findIndex((row) => row.id === item.id) === index,
           );
-          return { ...prev, [peerId]: new MediaStream(unique) };
+          return { ...prev, [peerId]: new MediaStream(tracks) };
         });
+        event.track.addEventListener("unmute", () => publishDiag());
         event.track.addEventListener("ended", () => publishDiag());
       };
       pc.onconnectionstatechange = () => {
@@ -227,8 +248,13 @@ export function usePeerMedia(
           slot.retryAttempt = 0;
           void readPair(slot);
         }
-        if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") {
-          void recover(peerId);
+        if (pc.iceConnectionState === "failed") void recover(peerId);
+        if (pc.iceConnectionState === "disconnected") {
+          window.setTimeout(() => {
+            if (closed) return;
+            const live = slots.get(peerId);
+            if (live?.pc === pc && pc.iceConnectionState === "disconnected") void recover(peerId);
+          }, 2500);
         }
       };
       pc.onnegotiationneeded = () => {
@@ -414,8 +440,24 @@ export function usePeerMedia(
         const slot = slots.get(id);
         if (!slot) continue;
         attachLocal(slot.pc, streamRef.current);
-        if (slot.pc.connectionState === "connected") continue;
-        void negotiate(id);
+        const hasRemote = Boolean(slot.pc.currentRemoteDescription);
+        if (shouldRetryStuckOffer(slot.pc.signalingState, hasRemote, slot.lastAttemptAt)) {
+          rtcLog("retry stuck offer", { peerId: id });
+          drop(id);
+          if (!ensureSlot(id)) continue;
+          void negotiate(id);
+          continue;
+        }
+        if (
+          shouldPollOffer({
+            connectionState: slot.pc.connectionState,
+            iceConnectionState: slot.pc.iceConnectionState,
+            signalingState: slot.pc.signalingState,
+            hasRemoteDescription: hasRemote,
+          })
+        ) {
+          void negotiate(id);
+        }
       }
       publishDiag();
     }

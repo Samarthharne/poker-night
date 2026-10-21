@@ -4,6 +4,7 @@ import {
   isOfferer,
   isStaleSession,
   nextRetryDelay,
+  pairSessionId,
   parseRtcMessage,
   queueIceCandidate,
   signalingAllowed,
@@ -13,7 +14,9 @@ import {
   glareDecision,
   shouldIceRestart,
   shouldOffer,
+  shouldPollOffer,
   shouldRebuild,
+  shouldRetryStuckOffer,
 } from "@/lib/video/peer-session";
 
 const a = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
@@ -24,6 +27,30 @@ describe("offerer selection", () => {
     expect(isOfferer(a, b)).toBe(true);
     expect(isOfferer(b, a)).toBe(false);
     expect(shouldOffer(a.replace(/-/g, "").toUpperCase(), b)).toBe(true);
+    expect(pairSessionId(a, b)).toBe(pairSessionId(b, a));
+  });
+});
+
+describe("offer polling", () => {
+  it("does not send a new offer while ICE is still connecting", () => {
+    expect(
+      shouldPollOffer({
+        connectionState: "connecting",
+        iceConnectionState: "checking",
+        signalingState: "stable",
+        hasRemoteDescription: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldPollOffer({
+        connectionState: "new",
+        iceConnectionState: "new",
+        signalingState: "stable",
+        hasRemoteDescription: false,
+      }),
+    ).toBe(true);
+    expect(shouldRetryStuckOffer("have-local-offer", false, Date.now() - 6_000)).toBe(true);
+    expect(shouldRetryStuckOffer("have-local-offer", false, Date.now() - 1_000)).toBe(false);
   });
 });
 
