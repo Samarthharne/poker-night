@@ -28,6 +28,7 @@ import { clearRoomToken } from "@/lib/client/session";
 import { useRoomSync } from "@/lib/realtime/use-room";
 import { useLocalMedia } from "@/lib/video/use-local-media";
 import { usePeerMedia } from "@/lib/video/use-peer-media";
+import { WebrtcDebugPanel } from "@/components/video/WebrtcDebugPanel";
 import { cn, formatChips } from "@/lib/utils";
 import type { RoomSnapshot } from "@/types/room";
 
@@ -49,13 +50,15 @@ export function RoomExperience({ code }: { code: string }) {
     () => snapshot?.players.filter((player) => player.id !== snapshot.you?.id).map((player) => player.id) ?? [],
     [snapshot],
   );
-  const remoteStreams = usePeerMedia(
+  const peers = usePeerMedia(
     code,
     snapshot?.you?.id,
     peerIds,
     media.stream,
     joined,
   );
+  const remoteStreams = peers.remoteStreams;
+  const [audioBlocked, setAudioBlocked] = useState(false);
   const cameraBooted = useRef(false);
   const cameraRetry = useRef(false);
 
@@ -237,6 +240,20 @@ export function RoomExperience({ code }: { code: string }) {
           </button>
         </div>
       </header>
+      {(audioBlocked || media.error) && (
+        <div className="shrink-0 border-b border-white/10 px-3 py-2 text-center text-sm">
+          {audioBlocked && (
+            <button
+              type="button"
+              className="rounded-full bg-gold px-4 py-1.5 font-semibold text-ink"
+              onClick={() => setAudioBlocked(false)}
+            >
+              Tap to enable audio
+            </button>
+          )}
+          {media.error && <p className="text-rose-300">{media.error}</p>}
+        </div>
+      )}
 
       {complete && snapshot.game ? (
         <GameComplete snapshot={snapshot} />
@@ -251,6 +268,8 @@ export function RoomExperience({ code }: { code: string }) {
             speakerMuted={media.speakerMuted}
             isAdmin={isAdmin}
             hostCode={code}
+            onFrame={peers.markFrame}
+            onAudioBlocked={setAudioBlocked}
           />
           <div className="relative z-40 flex shrink-0 justify-center gap-2 px-3 py-2">
             <IconToggle
@@ -295,6 +314,8 @@ export function RoomExperience({ code }: { code: string }) {
               localStream={media.stream}
               remoteStreams={remoteStreams}
               speakerMuted={media.speakerMuted}
+              onFrame={peers.markFrame}
+              onAudioBlocked={setAudioBlocked}
             />
             <div className="relative z-40 flex shrink-0 justify-center gap-2 px-3 py-1">
               <IconToggle
@@ -426,6 +447,23 @@ export function RoomExperience({ code }: { code: string }) {
           </div>
         </Overlay>
       )}
+      <WebrtcDebugPanel
+        diagnostics={peers.diagnostics}
+        localAudio={media.microphoneEnabled}
+        localVideo={media.cameraEnabled}
+        turnConfigured={peers.turnConfigured}
+        turnWarning={peers.turnWarning}
+        forceRelay={peers.forceRelay}
+        onForceRelay={peers.setForceRelay}
+        onTestCamera={() => {
+          void media.start(true, media.microphoneEnabled);
+        }}
+        onTestMic={() => {
+          void media.start(media.cameraEnabled, true);
+        }}
+        onReconnect={peers.reconnect}
+        onRestartIce={peers.restartIce}
+      />
     </div>
   );
 }

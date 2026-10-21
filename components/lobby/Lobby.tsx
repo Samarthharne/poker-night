@@ -10,6 +10,8 @@ export function Lobby({
   remoteStreams,
   localId,
   speakerMuted,
+  onFrame,
+  onAudioBlocked,
 }: {
   snapshot: RoomSnapshot;
   onUpdate?: (s: RoomSnapshot) => void;
@@ -19,6 +21,8 @@ export function Lobby({
   speakerMuted?: boolean;
   isAdmin?: boolean;
   hostCode?: string;
+  onFrame?: (playerId: string, ready: boolean) => void;
+  onAudioBlocked?: (blocked: boolean) => void;
 }) {
   const seats = Array.from({ length: Math.max(snapshot.maxPlayers, 6) }, (_, i) => i + 1);
 
@@ -60,6 +64,8 @@ export function Lobby({
                 remoteStream={remoteStreams?.[player.id] ?? null}
                 isYou={player.id === localId}
                 speakerMuted={speakerMuted}
+                onFrame={(ready) => onFrame?.(player.id, ready)}
+                onAudioBlocked={onAudioBlocked}
               />
             </div>
           );

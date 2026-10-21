@@ -26,6 +26,8 @@ export function SeatRing({
   onKick,
   canKick,
   speakerMuted,
+  onFrame,
+  onAudioBlocked,
 }: {
   maxPlayers: number;
   players: PublicPlayer[];
@@ -41,6 +43,8 @@ export function SeatRing({
   onKick?: (playerId: string) => void;
   canKick?: boolean;
   speakerMuted?: boolean;
+  onFrame?: (playerId: string, ready: boolean) => void;
+  onAudioBlocked?: (blocked: boolean) => void;
 }) {
   const seats = Math.max(maxPlayers, 2);
   const selfSeat = players.find((player) => player.id === youId)?.seatNumber ?? 1;
@@ -72,6 +76,8 @@ export function SeatRing({
                   isYou={player.id === youId}
                   speakerMuted={speakerMuted}
                   onExpand={() => onSelectPlayer?.(player.id)}
+                  onFrame={(ready) => onFrame?.(player.id, ready)}
+                  onAudioBlocked={onAudioBlocked}
                 />
                 {canKick && onKick && !player.isHost && player.id !== youId && (
                   <button

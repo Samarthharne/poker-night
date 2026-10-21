@@ -132,31 +132,42 @@ export async function sendMedia(
   return parse(res);
 }
 
-export async function sendRtcSignal(
-  code: string,
-  body: {
-    to: string;
-    description?: { type: string; sdp?: string };
-    candidate?: RTCIceCandidateInit | null;
-  },
-) {
-  await fetch(`/api/rooms/${code}/signals`, {
+export async function sendRtcSignal(code: string, body: Record<string, unknown>) {
+  const res = await fetch(`/api/rooms/${code}/signals`, {
     method: "POST",
     headers: authHeaders(code),
     body: JSON.stringify(body),
   });
+  return res.json().catch(() => ({ ok: false }));
 }
 
 export async function fetchRtcSignals(code: string) {
   const token = getRoomToken(code);
-  const qs = new URLSearchParams({ poll: "1" });
+  const qs = new URLSearchParams();
   if (token) qs.set("token", token);
   const res = await fetch(`/api/rooms/${code}/signals?${qs.toString()}`, {
     headers: authHeaders(code),
     cache: "no-store",
   });
-  const data = (await res.json().catch(() => null)) as { signals?: unknown } | null;
+  const data = (await res.json().catch(() => null)) as { messages?: unknown; signals?: unknown } | null;
+  if (Array.isArray(data?.messages)) return data.messages;
   return Array.isArray(data?.signals) ? data.signals : [];
+}
+
+export async function fetchRtcIce(code: string) {
+  const token = getRoomToken(code);
+  const qs = token ? `?token=${encodeURIComponent(token)}` : "";
+  const res = await fetch(`/api/rooms/${code}/webrtc/ice${qs}`, {
+    headers: authHeaders(code),
+    cache: "no-store",
+  });
+  return (await res.json().catch(() => null)) as {
+    iceServers?: RTCIceServer[];
+    turnConfigured?: boolean;
+    warning?: string | null;
+    channel?: string;
+    roomId?: string;
+  } | null;
 }
 
 export function eventsUrl(code: string) {

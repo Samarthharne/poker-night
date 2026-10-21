@@ -20,6 +20,8 @@ export function PlayerSeat({
   isYou,
   speakerMuted,
   onExpand,
+  onFrame,
+  onAudioBlocked,
 }: {
   player: PublicPlayer;
   dealerSeat: number | null;
@@ -34,6 +36,8 @@ export function PlayerSeat({
   isYou?: boolean;
   speakerMuted?: boolean;
   onExpand?: () => void;
+  onFrame?: (ready: boolean) => void;
+  onAudioBlocked?: (blocked: boolean) => void;
 }) {
   const reconnecting = !player.isConnected;
   const remote =
@@ -73,10 +77,12 @@ export function PlayerSeat({
           fallback={
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[#120c10]">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-burgundy text-lg font-semibold">
-                {initials(player.displayName)}
+                {hasMedia && !isYou ? "…" : initials(player.displayName)}
               </div>
             </div>
           }
+          onFrame={onFrame}
+          onAudioBlocked={onAudioBlocked}
         />
         {reconnecting && (
           <div className="absolute inset-x-0 bottom-0 bg-black/70 px-2 py-1 text-center text-[10px] uppercase tracking-wider text-amber-200">

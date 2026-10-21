@@ -12,6 +12,8 @@ export function VideoPlayer({
   label,
   name,
   fallback,
+  onFrame,
+  onAudioBlocked,
 }: {
   stream?: MediaStream | null;
   enabled?: boolean;
@@ -22,6 +24,8 @@ export function VideoPlayer({
   label?: string;
   name?: string;
   fallback?: ReactNode;
+  onFrame?: (ready: boolean) => void;
+  onAudioBlocked?: (blocked: boolean) => void;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -34,7 +38,8 @@ export function VideoPlayer({
 
   useEffect(() => {
     setReady(false);
-  }, [stream]);
+    onFrame?.(false);
+  }, [stream, onFrame]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -44,15 +49,17 @@ export function VideoPlayer({
       if (video.srcObject) video.srcObject = null;
       if (audio) audio.srcObject = null;
       setReady(false);
+      onFrame?.(false);
       return;
     }
-    if (video.srcObject !== stream) {
-      video.srcObject = stream;
-    }
+    if (video.srcObject !== stream) video.srcObject = stream;
     video.muted = true;
     video.playsInline = true;
     const markReady = () => {
-      if (video.videoWidth > 0) setReady(true);
+      if (video.videoWidth > 0) {
+        setReady(true);
+        onFrame?.(true);
+      }
     };
     video.addEventListener("loadeddata", markReady);
     video.addEventListener("playing", markReady);
@@ -61,18 +68,25 @@ export function VideoPlayer({
       if (muted) {
         audio.srcObject = null;
         audio.pause();
-      } else if (audio.srcObject !== stream) {
-        audio.srcObject = stream;
+        onAudioBlocked?.(false);
+      } else {
+        if (audio.srcObject !== stream) audio.srcObject = stream;
         audio.muted = false;
         audio.volume = 1;
-        void audio.play().catch(() => undefined);
-      } else {
-        void audio.play().catch(() => undefined);
+        void audio.play().then(
+          () => onAudioBlocked?.(false),
+          () => onAudioBlocked?.(true),
+        );
       }
     }
     const unlock = () => {
       void video.play().catch(() => undefined);
-      if (audio && !muted) void audio.play().catch(() => undefined);
+      if (audio && !muted) {
+        void audio.play().then(
+          () => onAudioBlocked?.(false),
+          () => onAudioBlocked?.(true),
+        );
+      }
     };
     window.addEventListener("pointerdown", unlock);
     return () => {
@@ -80,7 +94,7 @@ export function VideoPlayer({
       video.removeEventListener("loadeddata", markReady);
       video.removeEventListener("playing", markReady);
     };
-  }, [active, muted, stream]);
+  }, [active, muted, stream, onAudioBlocked, onFrame]);
 
   const showVideo = Boolean(active && stream && liveVideo && ready);
 
@@ -94,7 +108,10 @@ export function VideoPlayer({
         muted
         aria-label={title}
         onPlaying={() => {
-          if (videoRef.current && videoRef.current.videoWidth > 0) setReady(true);
+          if (videoRef.current && videoRef.current.videoWidth > 0) {
+            setReady(true);
+            onFrame?.(true);
+          }
         }}
       />
       {!showVideo && fallback}

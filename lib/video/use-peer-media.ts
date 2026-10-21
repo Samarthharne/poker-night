@@ -1,20 +1,35 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { fetchRtcSignals, sendRtcSignal } from "@/lib/client/api";
-import { rtcConfiguration } from "./ice";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { fetchRtcIce, fetchRtcSignals, sendRtcSignal } from "@/lib/client/api";
+import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase/client";
+import { rtcConfiguration, type IceResponse } from "./ice";
+import { rtcLog } from "./log";
+import {
+  canApplyMessage,
+  glareDecision,
+  localTrackFlags,
+  remoteTrackFlags,
+  shouldIceRestart,
+  shouldOffer,
+  shouldRebuild,
+  type PeerDiagnostics,
+} from "./peer-session";
 import { onVideoSignal } from "./signal-client";
-import type { RtcSignal } from "./signal-bus";
+import { createRtcMessage, nextRetryDelay, type RtcMessage } from "./rtc-protocol";
 
-function signalKey(signal: RtcSignal) {
-  return [
-    signal.from,
-    signal.to,
-    signal.description?.type ?? "",
-    signal.description?.sdp?.slice(0, 80) ?? "",
-    (signal.candidate as { candidate?: string } | null)?.candidate ?? "",
-  ].join("|");
-}
+type Slot = {
+  pc: RTCPeerConnection;
+  sessionId: string;
+  iceQueue: RTCIceCandidateInit[];
+  makingOffer: boolean;
+  retryAttempt: number;
+  lastError: string | null;
+  lastAttemptAt: number;
+  videoFrame: boolean;
+  candidateType: PeerDiagnostics["candidateType"];
+  backoffUntil: number;
+};
 
 function attachLocal(pc: RTCPeerConnection, stream: MediaStream | null) {
   if (!stream) {
@@ -34,6 +49,19 @@ function attachLocal(pc: RTCPeerConnection, stream: MediaStream | null) {
   }
 }
 
+async function addQueuedIce(pc: RTCPeerConnection, queued: RTCIceCandidateInit[]) {
+  const leftover: RTCIceCandidateInit[] = [];
+  for (const candidate of queued) {
+    try {
+      await pc.addIceCandidate(candidate);
+    } catch (error) {
+      leftover.push(candidate);
+      rtcLog("addIceCandidate failed", { error: String(error) });
+    }
+  }
+  return leftover;
+}
+
 export function usePeerMedia(
   code: string,
   selfId: string | undefined,
@@ -42,62 +70,84 @@ export function usePeerMedia(
   enabled: boolean,
 ) {
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
+  const [diagnostics, setDiagnostics] = useState<Record<string, PeerDiagnostics>>({});
+  const [turnConfigured, setTurnConfigured] = useState(true);
+  const [turnWarning, setTurnWarning] = useState<string | null>(null);
+  const [forceRelay, setForceRelay] = useState(false);
   const streamRef = useRef(localStream);
   const selfRef = useRef(selfId);
   const wantedRef = useRef(peerIds);
-  const pcsRef = useRef(new Map<string, RTCPeerConnection>());
-  const iceBufRef = useRef(new Map<string, RTCIceCandidateInit[]>());
+  const slotsRef = useRef(new Map<string, Slot>());
   const seenRef = useRef(new Set<string>());
-  const offeringRef = useRef(new Set<string>());
-  const lastOfferRef = useRef(new Map<string, number>());
+  const iceRef = useRef<RTCConfiguration>(rtcConfiguration());
+  const roomIdRef = useRef("");
+  const channelRef = useRef<string | null>(null);
   streamRef.current = localStream;
   selfRef.current = selfId;
   wantedRef.current = peerIds;
 
+  const remotesRef = useRef(remoteStreams);
+  remotesRef.current = remoteStreams;
+
+  const publishDiag = useCallback(() => {
+    const next: Record<string, PeerDiagnostics> = {};
+    for (const [playerId, slot] of slotsRef.current) {
+      const remote = remotesRef.current[playerId] ?? null;
+      next[playerId] = {
+        playerId,
+        sessionId: slot.sessionId,
+        offerer: shouldOffer(selfRef.current ?? "", playerId),
+        polite: !shouldOffer(selfRef.current ?? "", playerId),
+        connectionState: slot.pc.connectionState,
+        iceConnectionState: slot.pc.iceConnectionState,
+        iceGatheringState: slot.pc.iceGatheringState,
+        signalingState: slot.pc.signalingState,
+        ...localTrackFlags(streamRef.current),
+        ...remoteTrackFlags(remote),
+        videoFrame: slot.videoFrame,
+        candidateType: slot.candidateType,
+        lastError: slot.lastError,
+        lastAttemptAt: slot.lastAttemptAt,
+        retryAttempt: slot.retryAttempt,
+      };
+    }
+    setDiagnostics(next);
+  }, []);
+
   useEffect(() => {
     if (!enabled || !code || !selfId) return;
     let closed = false;
-    const pcs = pcsRef.current;
-    pcs.clear();
-    iceBufRef.current.clear();
+    const slots = slotsRef.current;
+    slots.clear();
     seenRef.current.clear();
-    offeringRef.current.clear();
-    lastOfferRef.current.clear();
 
-    function publish(peerId: string, track: MediaStreamTrack, streams: readonly MediaStream[]) {
-      setRemoteStreams((prev) => {
-        const incoming = streams[0];
-        const tracks = [
-          ...(incoming ? incoming.getTracks() : prev[peerId]?.getTracks() ?? []),
-          track,
-        ];
-        const unique = [...new Map(tracks.map((item) => [item.id, item])).values()].filter(
-          (item) => item.readyState !== "ended",
-        );
-        const next = new MediaStream(unique);
-        const current = prev[peerId];
-        if (
-          current &&
-          current.getTracks().length === next.getTracks().length &&
-          current.getTracks().every((item) => next.getTracks().some((other) => other.id === item.id))
-        ) {
-          return prev;
-        }
-        return { ...prev, [peerId]: next };
-      });
+    async function post(message: RtcMessage) {
+      const result = await sendRtcSignal(code, message);
+      if (!result || result.ok === false) {
+        rtcLog("signal post failed", { type: message.type, to: message.to });
+      }
     }
 
-    function drop(peerId: string) {
-      const pc = pcs.get(peerId);
-      if (pc) {
-        try {
-          pc.close();
-        } catch {
-          /* ignore */
-        }
-        pcs.delete(peerId);
+    function drop(peerId: string, sendHangup = false) {
+      const slot = slots.get(peerId);
+      if (!slot) return;
+      if (sendHangup) {
+        void post(
+          createRtcMessage({
+            roomId: roomIdRef.current,
+            from: selfRef.current ?? "",
+            to: peerId,
+            type: "hangup",
+            sessionId: slot.sessionId,
+          }),
+        );
       }
-      iceBufRef.current.delete(peerId);
+      try {
+        slot.pc.close();
+      } catch {
+        rtcLog("peer close failed", { peerId });
+      }
+      slots.delete(peerId);
       setRemoteStreams((prev) => {
         if (!prev[peerId]) return prev;
         const next = { ...prev };
@@ -106,177 +156,376 @@ export function usePeerMedia(
       });
     }
 
-    async function flushIce(peerId: string, pc: RTCPeerConnection) {
-      const queued = iceBufRef.current.get(peerId) ?? [];
-      iceBufRef.current.set(peerId, []);
-      for (const candidate of queued) {
-        try {
-          await pc.addIceCandidate(candidate);
-        } catch {
-          /* remote description not ready */
+    function ensureSlot(peerId: string, sessionId?: string) {
+      const existing = slots.get(peerId);
+      if (existing && existing.pc.connectionState !== "closed") {
+        if (sessionId && sessionId !== existing.sessionId && sessionId !== "legacy") {
+          drop(peerId);
+        } else {
+          return existing;
         }
       }
-    }
-
-    async function negotiate(peerId: string) {
-      const pc = pcs.get(peerId);
-      const me = selfRef.current ?? "";
-      if (!pc || closed || !me || me >= peerId) return;
-      if (offeringRef.current.has(peerId)) return;
-      if (pc.signalingState !== "stable") return;
-      const now = Date.now();
-      if (now - (lastOfferRef.current.get(peerId) ?? 0) < 4000) return;
-      lastOfferRef.current.set(peerId, now);
-      offeringRef.current.add(peerId);
-      try {
-        attachLocal(pc, streamRef.current);
-        const offer = await pc.createOffer({ iceRestart: pc.connectionState === "failed" });
-        if (closed || pc.signalingState !== "stable") return;
-        await pc.setLocalDescription(offer);
-        const local = pc.localDescription;
-        if (!local) return;
-        await sendRtcSignal(code, {
-          to: peerId,
-          description: { type: local.type, sdp: local.sdp ?? undefined },
-        });
-      } catch {
-        /* other player is not ready yet */
-      } finally {
-        offeringRef.current.delete(peerId);
-      }
-    }
-
-    function ensurePc(peerId: string) {
-      const existing = pcs.get(peerId);
-      if (existing && existing.connectionState !== "closed") return existing;
-      const pc = new RTCPeerConnection(rtcConfiguration());
-      pcs.set(peerId, pc);
+      const pc = new RTCPeerConnection({
+        ...iceRef.current,
+        iceTransportPolicy: forceRelay ? "relay" : "all",
+      });
+      const slot: Slot = {
+        pc,
+        sessionId: sessionId && sessionId !== "legacy" ? sessionId : crypto.randomUUID(),
+        iceQueue: [],
+        makingOffer: false,
+        retryAttempt: existing?.retryAttempt ?? 0,
+        lastError: null,
+        lastAttemptAt: Date.now(),
+        videoFrame: false,
+        candidateType: "unknown",
+        backoffUntil: 0,
+      };
+      slots.set(peerId, slot);
       attachLocal(pc, streamRef.current);
       pc.onicecandidate = (event) => {
-        if (!event.candidate || closed) return;
-        void sendRtcSignal(code, { to: peerId, candidate: event.candidate.toJSON() });
+        if (closed) return;
+        void post(
+          createRtcMessage({
+            roomId: roomIdRef.current,
+            from: selfRef.current ?? "",
+            to: peerId,
+            type: "ice-candidate",
+            sessionId: slot.sessionId,
+            payload: { candidate: event.candidate ? event.candidate.toJSON() : null },
+          }),
+        );
       };
       pc.ontrack = (event) => {
-        if (!closed) publish(peerId, event.track, event.streams);
+        if (closed) return;
+        setRemoteStreams((prev) => {
+          const tracks = [...(event.streams[0]?.getTracks() ?? prev[peerId]?.getTracks() ?? []), event.track];
+          const unique = [...new Map(tracks.map((item) => [item.id, item])).values()].filter(
+            (item) => item.readyState !== "ended",
+          );
+          return { ...prev, [peerId]: new MediaStream(unique) };
+        });
+        event.track.addEventListener("ended", () => publishDiag());
       };
       pc.onconnectionstatechange = () => {
-        if (closed) return;
-        if (pc.connectionState === "failed") void negotiate(peerId);
+        rtcLog("connectionState", { peerId, state: pc.connectionState });
+        publishDiag();
+        if (pc.connectionState === "failed") void recover(peerId);
+      };
+      pc.oniceconnectionstatechange = () => {
+        rtcLog("iceConnectionState", { peerId, state: pc.iceConnectionState });
+        publishDiag();
+        if (pc.iceConnectionState === "connected" || pc.iceConnectionState === "completed") {
+          slot.retryAttempt = 0;
+          void readPair(slot);
+        }
+        if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") {
+          void recover(peerId);
+        }
       };
       pc.onnegotiationneeded = () => {
         if (!closed) void negotiate(peerId);
       };
-      return pc;
+      return slot;
     }
 
-    async function apply(signal: RtcSignal) {
+    async function readPair(slot: Slot) {
+      try {
+        const stats = await slot.pc.getStats();
+        stats.forEach((report) => {
+          if (report.type === "candidate-pair" && report.nominated) {
+            const remote = stats.get(report.remoteCandidateId as string) as { candidateType?: string } | undefined;
+            const kind = remote?.candidateType;
+            if (kind === "host" || kind === "srflx" || kind === "relay") slot.candidateType = kind;
+          }
+        });
+      } catch {
+        /* stats unavailable */
+      }
+      publishDiag();
+    }
+
+    async function negotiate(peerId: string, iceRestart = false) {
+      const me = selfRef.current ?? "";
+      if (!shouldOffer(me, peerId)) return;
+      const slot = ensureSlot(peerId);
+      if (slot.makingOffer || slot.pc.signalingState !== "stable") return;
+      if (Date.now() < slot.backoffUntil) return;
+      slot.makingOffer = true;
+      slot.lastAttemptAt = Date.now();
+      try {
+        attachLocal(slot.pc, streamRef.current);
+        const offer = await slot.pc.createOffer({ iceRestart });
+        if (closed || slot.pc.signalingState !== "stable") return;
+        await slot.pc.setLocalDescription(offer);
+        const local = slot.pc.localDescription;
+        if (!local) return;
+        await post(
+          createRtcMessage({
+            roomId: roomIdRef.current,
+            from: me,
+            to: peerId,
+            type: iceRestart ? "ice-restart" : "offer",
+            sessionId: slot.sessionId,
+            payload: { sdp: { type: local.type, sdp: local.sdp ?? undefined } },
+          }),
+        );
+      } catch (error) {
+        slot.lastError = error instanceof Error ? error.message : "Offer failed.";
+        rtcLog("offer failed", { peerId, error: slot.lastError });
+      } finally {
+        slot.makingOffer = false;
+        publishDiag();
+      }
+    }
+
+    async function recover(peerId: string) {
+      const slot = slots.get(peerId);
+      if (!slot || closed) return;
+      if (Date.now() < slot.backoffUntil) return;
+      const iceState = slot.pc.iceConnectionState;
+      const conn = slot.pc.connectionState;
+      if (shouldIceRestart(conn, iceState, slot.retryAttempt) && !shouldRebuild(conn, iceState, slot.retryAttempt)) {
+        slot.retryAttempt += 1;
+        slot.backoffUntil = Date.now() + nextRetryDelay(slot.retryAttempt);
+        rtcLog("ice restart", { peerId, attempt: slot.retryAttempt });
+        await negotiate(peerId, true);
+        return;
+      }
+      if (!shouldRebuild(conn, iceState, slot.retryAttempt)) return;
+      slot.retryAttempt += 1;
+      slot.backoffUntil = Date.now() + nextRetryDelay(slot.retryAttempt);
+      rtcLog("rebuild peer", { peerId, attempt: slot.retryAttempt });
+      drop(peerId);
+      ensureSlot(peerId);
+      await negotiate(peerId);
+    }
+
+    async function apply(message: RtcMessage) {
       if (closed) return;
       const me = selfRef.current;
-      if (!me || signal.from === me || (signal.to && signal.to !== me)) return;
-      const key = signalKey(signal);
-      if (seenRef.current.has(key)) return;
-      seenRef.current.add(key);
-      if (seenRef.current.size > 300) {
-        seenRef.current = new Set([...seenRef.current].slice(-150));
+      if (!me || message.from === me || (message.to && message.to !== me)) return;
+      const decision = canApplyMessage(slots.get(message.from)?.sessionId, message, seenRef.current);
+      if (!decision.ok) return;
+      seenRef.current.add(message.id);
+      if (seenRef.current.size > 400) seenRef.current = new Set([...seenRef.current].slice(-200));
+      if (message.type === "hangup") {
+        drop(message.from);
+        return;
       }
-      const pc = ensurePc(signal.from);
+      const slot = ensureSlot(message.from, message.sessionId === "legacy" ? undefined : message.sessionId);
       try {
-        if (signal.description?.type === "offer" && signal.description.sdp) {
-          if (pc.signalingState !== "stable" && (selfRef.current ?? "") < signal.from) return;
-          if (pc.signalingState !== "stable") {
-            try {
-              await pc.setLocalDescription({ type: "rollback" });
-            } catch {
-              drop(signal.from);
-              ensurePc(signal.from);
-            }
-          }
-          const live = pcs.get(signal.from) ?? pc;
-          await live.setRemoteDescription({
-            type: "offer",
-            sdp: signal.description.sdp,
+        if (message.type === "offer" || message.type === "ice-restart") {
+          const glare = glareDecision({
+            selfId: me,
+            peerId: message.from,
+            makingOffer: slot.makingOffer,
+            signalingState: slot.pc.signalingState,
+            incomingType: "offer",
           });
-          attachLocal(live, streamRef.current);
-          const answer = await live.createAnswer();
-          await live.setLocalDescription(answer);
-          const local = live.localDescription;
-          if (local) {
-            await sendRtcSignal(code, {
-              to: signal.from,
-              description: { type: local.type, sdp: local.sdp ?? undefined },
-            });
-          }
-          await flushIce(signal.from, live);
-        } else if (signal.description?.type === "answer" && signal.description.sdp) {
-          if (pc.signalingState === "have-local-offer") {
-            await pc.setRemoteDescription({
-              type: "answer",
-              sdp: signal.description.sdp,
-            });
-            await flushIce(signal.from, pc);
-          }
-        } else if (signal.candidate) {
-          const candidate = signal.candidate as RTCIceCandidateInit;
-          if (!pc.remoteDescription) {
-            const queued = iceBufRef.current.get(signal.from) ?? [];
-            queued.push(candidate);
-            iceBufRef.current.set(signal.from, queued);
-          } else {
+          if (glare.ignore) return;
+          if (glare.rollback) {
             try {
-              await pc.addIceCandidate(candidate);
+              await slot.pc.setLocalDescription({ type: "rollback" });
             } catch {
-              /* stale candidate */
+              drop(message.from);
+              ensureSlot(message.from, message.sessionId);
             }
           }
+          const live = slots.get(message.from);
+          if (!live || !message.payload.sdp?.sdp) return;
+          await live.pc.setRemoteDescription({
+            type: "offer",
+            sdp: message.payload.sdp.sdp,
+          });
+          live.iceQueue = await addQueuedIce(live.pc, live.iceQueue);
+          attachLocal(live.pc, streamRef.current);
+          const answer = await live.pc.createAnswer();
+          await live.pc.setLocalDescription(answer);
+          const local = live.pc.localDescription;
+          if (local) {
+            await post(
+              createRtcMessage({
+                roomId: roomIdRef.current,
+                from: me,
+                to: message.from,
+                type: "answer",
+                sessionId: live.sessionId,
+                payload: { sdp: { type: local.type, sdp: local.sdp ?? undefined } },
+              }),
+            );
+          }
+        } else if (message.type === "answer" && message.payload.sdp?.sdp) {
+          if (slot.pc.signalingState === "have-local-offer") {
+            await slot.pc.setRemoteDescription({ type: "answer", sdp: message.payload.sdp.sdp });
+            slot.iceQueue = await addQueuedIce(slot.pc, slot.iceQueue);
+          }
+        } else if (message.type === "ice-candidate") {
+          const candidate = message.payload.candidate ?? null;
+          if (!candidate) return;
+          if (!slot.pc.remoteDescription) slot.iceQueue.push(candidate);
+          else {
+            try {
+              await slot.pc.addIceCandidate(candidate);
+            } catch (error) {
+              slot.lastError = error instanceof Error ? error.message : "ICE candidate rejected.";
+              rtcLog("stale ice", { peerId: message.from });
+            }
+          }
+        } else if (message.type === "renegotiate") {
+          await negotiate(message.from);
         }
-      } catch {
-        /* glare or stale description */
+      } catch (error) {
+        slot.lastError = error instanceof Error ? error.message : "Signaling failed.";
+        rtcLog("apply failed", { peerId: message.from, type: message.type, error: slot.lastError });
       }
+      await sendRtcSignal(code, { ackIds: [message.id] });
+      publishDiag();
     }
 
     async function pump() {
       if (closed) return;
       const wanted = wantedRef.current.filter((id) => id && id !== selfRef.current);
-      for (const id of [...pcs.keys()]) {
-        if (!wanted.includes(id)) drop(id);
+      for (const id of [...slots.keys()]) {
+        if (!wanted.includes(id)) drop(id, true);
       }
-      for (const id of wanted) ensurePc(id);
+      for (const id of wanted) ensureSlot(id);
       try {
-        const signals = (await fetchRtcSignals(code)) as RtcSignal[];
-        for (const signal of signals) await apply(signal);
-      } catch {
-        /* keep the peer connections */
+        const messages = (await fetchRtcSignals(code)) as RtcMessage[];
+        for (const message of messages) await apply(message);
+      } catch (error) {
+        rtcLog("poll failed", { error: String(error) });
       }
       for (const id of wanted) {
-        const pc = pcs.get(id);
-        if (!pc) continue;
-        attachLocal(pc, streamRef.current);
-        if (pc.connectionState === "connected" || pc.connectionState === "connecting") continue;
+        const slot = slots.get(id);
+        if (!slot) continue;
+        attachLocal(slot.pc, streamRef.current);
+        if (slot.pc.connectionState === "connected") continue;
         void negotiate(id);
       }
+      publishDiag();
     }
 
     const unsub = onVideoSignal((signal) => {
-      void apply(signal as RtcSignal);
+      const legacy = signal as {
+        from: string;
+        to?: string;
+        description?: { type: string; sdp?: string };
+        candidate?: RTCIceCandidateInit | null;
+      };
+      if (legacy.description?.type) {
+        void apply({
+          id: `sse-${legacy.from}-${legacy.description.type}-${Date.now()}`,
+          roomId: roomIdRef.current,
+          from: legacy.from,
+          to: selfRef.current ?? "",
+          type: legacy.description.type === "answer" ? "answer" : "offer",
+          sessionId: "legacy",
+          createdAt: Date.now(),
+          payload: { sdp: legacy.description },
+        });
+      } else if (legacy.candidate) {
+        void apply({
+          id: `sse-${legacy.from}-ice-${Date.now()}`,
+          roomId: roomIdRef.current,
+          from: legacy.from,
+          to: selfRef.current ?? "",
+          type: "ice-candidate",
+          sessionId: "legacy",
+          createdAt: Date.now(),
+          payload: { candidate: legacy.candidate },
+        });
+      }
     });
+
+    let broadcast: ReturnType<NonNullable<ReturnType<typeof getSupabaseBrowserClient>>["channel"]> | null = null;
     const poll = setInterval(() => {
       void pump();
-    }, 1000);
-    void pump();
+    }, 700);
+
+    void (async () => {
+      const ice = await fetchRtcIce(code);
+      if (closed) return;
+      if (ice?.iceServers?.length) {
+        iceRef.current = { ...rtcConfiguration(), iceServers: ice.iceServers };
+      }
+      setTurnConfigured(Boolean(ice?.turnConfigured));
+      setTurnWarning(ice?.warning ?? null);
+      roomIdRef.current = ice?.roomId ?? "";
+      channelRef.current = ice?.channel ?? null;
+      if (ice && !ice.turnConfigured && ice.warning) rtcLog(ice.warning);
+      if (ice?.channel && isSupabaseConfigured()) {
+        const client = getSupabaseBrowserClient();
+        if (client) {
+          broadcast = client.channel(ice.channel);
+          (
+            broadcast as unknown as {
+              on: (
+                type: "broadcast",
+                filter: { event: string },
+                callback: (event: { payload?: RtcMessage }) => void,
+              ) => void;
+            }
+          ).on("broadcast", { event: "rtc" }, (event) => {
+            if (event.payload) void apply(event.payload);
+          });
+          void broadcast.subscribe();
+        }
+      }
+      await pump();
+    })();
 
     return () => {
       closed = true;
       unsub();
       clearInterval(poll);
-      for (const id of [...pcs.keys()]) drop(id);
+      void broadcast?.unsubscribe();
+      for (const id of [...slots.keys()]) drop(id);
       setRemoteStreams({});
+      setDiagnostics({});
     };
-  }, [code, enabled, selfId]);
+  }, [code, enabled, selfId, forceRelay, publishDiag]);
 
   useEffect(() => {
     if (!localStream) return;
-    for (const pc of pcsRef.current.values()) attachLocal(pc, localStream);
+    for (const slot of slotsRef.current.values()) attachLocal(slot.pc, localStream);
   }, [localStream]);
 
-  return remoteStreams;
+  const reconnect = useCallback(
+    (peerId?: string) => {
+      const ids = peerId ? [peerId] : wantedRef.current;
+      for (const id of ids) {
+        const slot = slotsRef.current.get(id);
+        if (slot) slot.backoffUntil = 0;
+      }
+    },
+    [],
+  );
+
+  const restartIce = useCallback((peerId: string) => {
+    const slot = slotsRef.current.get(peerId);
+    if (!slot) return;
+    slot.backoffUntil = 0;
+    if (slot.pc.restartIce) slot.pc.restartIce();
+  }, []);
+
+  const markFrame = useCallback((peerId: string, ready: boolean) => {
+    const slot = slotsRef.current.get(peerId);
+    if (!slot) return;
+    slot.videoFrame = ready;
+  }, []);
+
+  return {
+    remoteStreams,
+    diagnostics,
+    turnConfigured,
+    turnWarning,
+    forceRelay,
+    setForceRelay,
+    reconnect,
+    restartIce,
+    markFrame,
+  };
 }
+
+export type { IceResponse, PeerDiagnostics };

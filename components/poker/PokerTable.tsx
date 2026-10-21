@@ -29,12 +29,16 @@ export function PokerTable({
   remoteStreams,
   speakerMuted,
   onSelectPlayer,
+  onFrame,
+  onAudioBlocked,
 }: {
   snapshot: RoomSnapshot;
   localStream?: MediaStream | null;
   remoteStreams?: Record<string, MediaStream>;
   speakerMuted?: boolean;
   onSelectPlayer?: (id: string) => void;
+  onFrame?: (playerId: string, ready: boolean) => void;
+  onAudioBlocked?: (blocked: boolean) => void;
 }) {
   const { sb, bb } = blindsFor(snapshot);
   const winnerIds = useMemo(
@@ -71,6 +75,8 @@ export function PokerTable({
           remoteStreams={remoteStreams}
           speakerMuted={speakerMuted}
           showCardsFor={winnerIds}
+          onFrame={onFrame}
+          onAudioBlocked={onAudioBlocked}
           onSelectPlayer={onSelectPlayer}
         />
       </div>

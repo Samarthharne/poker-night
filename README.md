@@ -81,11 +81,44 @@ The service-role key stays on the server. Row Level Security is enabled with no 
 
 Live hand state is authoritative in the Next.js server process so every browser sees the same cards, pot, and turn. Restarting the server clears open tables. Room metadata tables are ready for Supabase when you want them persisted.
 
-## Video
+## Face and voice (WebRTC)
+
+Poker Night uses a **full mesh** of browser `RTCPeerConnection`s (one per remote seat, up to 6 players). The Netlify app never carries camera or microphone media. It only delivers signaling (offers, answers, ICE) and short-lived ICE server lists.
+
+### Signaling across Netlify instances
+
+In-memory SSE is not enough: two browsers often hit different serverless instances. Offers, answers, and ICE candidates are stored in a **Netlify Blobs** inbox (`poker-rtc`) with strong consistency, unique message ids, expiry, and acknowledgements. Each client polls `GET /api/rooms/<code>/signals` and acks delivered ids.
+
+If `NEXT_PUBLIC_SUPABASE_URL` is set, members also subscribe to a hashed Supabase Realtime broadcast channel returned by `GET /api/rooms/<code>/webrtc/ice`. That is a fast path only. The blob inbox remains the source of truth after a refresh.
+
+SDP and ICE never go into the public poker snapshot. `cameraEnabled` / `microphoneEnabled` on a seat are the player's reported device toggles, not proof that another laptop is receiving media.
+
+### TURN (required for other networks)
+
+Public STUN is not enough for two phones on different Wi-Fi or mobile data. Configure **your** TURN server (coturn, Twilio, Metered, Cloudflare Calls, etc.):
 
 | Variable | Purpose |
 | --- | --- |
-| `NEXT_PUBLIC_LIVEKIT_URL` | Multi-user WebRTC |
-| `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET` | LiveKit token minting |
+| `NEXT_PUBLIC_STUN_URLS` | Optional STUN override |
+| `TURN_URLS` | TURN/TURNS URLs (UDP plus TCP/TLS if you have them) |
+| `TURN_SECRET` | coturn REST secret. Server mints `expiry:poker` usernames. **Never** prefix with `NEXT_PUBLIC_` |
+| `TURN_USERNAME` / `TURN_CREDENTIAL` | Static TURN login if you are not using time-limited REST auth |
+| `TURN_TTL_SECONDS` | Lifetime of minted credentials (default 3600) |
 
-Without LiveKit, a player still gets a local camera preview. Other seats show initials. Camera failure does not remove someone from the hand.
+Room members fetch ICE servers from `/api/rooms/<code>/webrtc/ice` after they join. The TURN provider API key / coturn secret is never sent to the browser.
+
+Without TURN, local same-Wi-Fi browsers may still connect. Cross-network friends will usually stay on initials. Development builds log a warning and the diagnostic panel shows it.
+
+### Diagnostics
+
+In `next dev`, a **WebRTC diagnostics** panel lists connection/ICE/signaling state per remote player, whether a video frame arrived, and host/srflx/relay when stats are available. Buttons: Test Camera, Test Microphone, Reconnect, Restart ICE, Relay-only ICE, Copy Diagnostic Report. Enable it on a production deploy with `NEXT_PUBLIC_WEBRTC_DEBUG=1`. The report does not include SDP or TURN secrets.
+
+### Test two devices
+
+1. Deploy with TURN configured, or run `npm run dev` on one machine (same process, so signaling works on a LAN without blobs).
+2. Open the invitation link on two browsers. Allow camera and microphone on **both**.
+3. Confirm local preview, then the other face and voice. Mute/unmute should not drop the call.
+4. If audio is silent, use **Tap to enable audio** (browser autoplay).
+5. If faces never appear across networks, the diagnostic `pair` field should become `relay`. If it stays `unknown` and TURN is missing, configure TURN.
+
+Mesh scale: this design is for a 6-max table. An SFU (LiveKit env vars are reserved) is the next step if rooms grow past a handful of players.

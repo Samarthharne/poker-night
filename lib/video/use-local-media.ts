@@ -2,7 +2,31 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+function mediaErrorMessage(error: unknown) {
+  const name = error instanceof DOMException || error instanceof Error ? error.name : "";
+  if (name === "NotAllowedError" || name === "PermissionDeniedError") {
+    return "Allow camera and microphone in the browser settings, then try again.";
+  }
+  if (name === "NotFoundError" || name === "DevicesNotFoundError") {
+    return "No camera or microphone was found on this device.";
+  }
+  if (name === "NotReadableError" || name === "TrackStartError" || name === "AbortError") {
+    return "The camera or microphone is already in use by another app.";
+  }
+  if (typeof window !== "undefined" && !window.isSecureContext) {
+    return "Camera and microphone need a secure HTTPS page.";
+  }
+  if (typeof navigator !== "undefined" && !navigator.mediaDevices?.getUserMedia) {
+    return "This browser cannot use the camera or microphone.";
+  }
+  if (error instanceof Error && error.message) return error.message;
+  return "Could not start camera or microphone.";
+}
+
 async function requestStream(video: boolean, audio: boolean) {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error("This browser cannot use the camera or microphone.");
+  }
   const attempts: MediaStreamConstraints[] = [];
   if (video && audio) {
     attempts.push(
@@ -15,16 +39,7 @@ async function requestStream(video: boolean, audio: boolean) {
   let lastError: unknown;
   for (const constraints of attempts) {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia(constraints);
-      if (video && !stream.getVideoTracks().length && audio) {
-        try {
-          const cam = await navigator.mediaDevices.getUserMedia({ video: true });
-          cam.getVideoTracks().forEach((track) => stream.addTrack(track));
-        } catch {
-          /* keep microphone-only if the camera is blocked */
-        }
-      }
-      return stream;
+      return await navigator.mediaDevices.getUserMedia(constraints);
     } catch (error) {
       lastError = error;
     }
@@ -60,18 +75,26 @@ export function useLocalMedia() {
         streamRef.current?.getTracks().forEach((track) => {
           if (!next.getTracks().some((item) => item.id === track.id)) track.stop();
         });
-        const camera = next.getVideoTracks().some((track) => track.readyState === "live");
-        const mic = next.getAudioTracks().some((track) => track.readyState === "live");
-        next.getAudioTracks().forEach((track) => {
-          track.enabled = audio;
-        });
         next.getVideoTracks().forEach((track) => {
           track.enabled = video;
+          track.onended = () => {
+            if (streamRef.current === next) setCameraEnabled(false);
+          };
         });
-        publish(next, camera && video, mic && audio);
+        next.getAudioTracks().forEach((track) => {
+          track.enabled = audio;
+          track.onended = () => {
+            if (streamRef.current === next) setMicrophoneEnabled(false);
+          };
+        });
+        const camera = video && next.getVideoTracks().some((track) => track.readyState === "live");
+        const mic = audio && next.getAudioTracks().some((track) => track.readyState === "live");
+        if (video && !camera) setError("Camera could not start. Check permission and try again.");
+        else if (audio && !mic) setError("Microphone could not start. Check permission and try again.");
+        publish(next, camera, mic);
         return next;
-      } catch {
-        setError("Allow camera and microphone to see and hear the other players.");
+      } catch (caught) {
+        setError(mediaErrorMessage(caught));
         return null;
       }
     },
@@ -91,10 +114,11 @@ export function useLocalMedia() {
     if (live) {
       live.enabled = true;
       setCameraEnabled(true);
+      setError(null);
       return true;
     }
     const next = await start(true, microphoneEnabled || Boolean(current?.getAudioTracks().length));
-    return Boolean(next?.getVideoTracks().some((track) => track.enabled));
+    return Boolean(next?.getVideoTracks().some((track) => track.enabled && track.readyState === "live"));
   }, [cameraEnabled, microphoneEnabled, start]);
 
   const toggleMic = useCallback(async () => {
@@ -110,10 +134,11 @@ export function useLocalMedia() {
     if (live) {
       live.enabled = true;
       setMicrophoneEnabled(true);
+      setError(null);
       return true;
     }
     const next = await start(cameraEnabled || Boolean(current?.getVideoTracks().length), true);
-    return Boolean(next?.getAudioTracks().some((track) => track.enabled));
+    return Boolean(next?.getAudioTracks().some((track) => track.enabled && track.readyState === "live"));
   }, [cameraEnabled, microphoneEnabled, start]);
 
   useEffect(() => () => stop(), [stop]);
@@ -133,3 +158,5 @@ export function useLocalMedia() {
     setMicrophoneEnabled,
   };
 }
+
+export { mediaErrorMessage };

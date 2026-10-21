@@ -1,9 +1,9 @@
 import { seedBlobsFromRequest } from "@/lib/store/durable";
-import type { RtcSignal } from "./signal-bus";
+import { RTC_MESSAGE_TTL_MS, type RtcMessage } from "./rtc-protocol";
 
 const STORE_NAME = "poker-rtc";
 
-type Packet = RtcSignal & { at: number };
+const memory = new Map<string, RtcMessage[]>();
 
 async function openStore(req?: Request) {
   await seedBlobsFromRequest(req);
@@ -23,19 +23,47 @@ function inboxKey(roomId: string, playerId: string) {
   return `inbox:${roomId}:${playerId}`;
 }
 
-export async function appendRtcSignal(roomId: string, signal: RtcSignal, req?: Request) {
+function prune(messages: RtcMessage[], now = Date.now()) {
+  const seen = new Set<string>();
+  return messages
+    .filter((item) => now - item.createdAt < RTC_MESSAGE_TTL_MS)
+    .filter((item) => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    })
+    .slice(-160);
+}
+
+async function readInbox(roomId: string, playerId: string, req?: Request) {
+  const key = inboxKey(roomId, playerId);
   const store = await openStore(req);
-  if (!store) return false;
-  const key = inboxKey(roomId, signal.to);
-  const now = Date.now();
-  const packet: Packet = { ...signal, at: now };
+  if (!store) return prune(memory.get(key) ?? []);
+  try {
+    const current = (await store.get(key, { type: "json", consistency: "strong" })) as RtcMessage[] | null;
+    return prune(Array.isArray(current) ? current : []);
+  } catch {
+    return [];
+  }
+}
+
+async function writeInbox(roomId: string, playerId: string, messages: RtcMessage[], req?: Request) {
+  const key = inboxKey(roomId, playerId);
+  const next = prune(messages);
+  const store = await openStore(req);
+  if (!store) {
+    memory.set(key, next);
+    return true;
+  }
+  await store.setJSON(key, next);
+  return true;
+}
+
+export async function appendRtcMessage(roomId: string, message: RtcMessage, req?: Request) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      const current = (await store.get(key, { type: "json", consistency: "strong" })) as Packet[] | null;
-      const next = [...(Array.isArray(current) ? current : []), packet]
-        .filter((item) => now - (item.at ?? now) < 25_000)
-        .slice(-120);
-      await store.setJSON(key, next);
+      const current = await readInbox(roomId, message.to, req);
+      await writeInbox(roomId, message.to, [...current, message], req);
       return true;
     } catch {
       /* retry */
@@ -44,35 +72,17 @@ export async function appendRtcSignal(roomId: string, signal: RtcSignal, req?: R
   return false;
 }
 
-export async function readRtcSignals(roomId: string, playerId: string, req?: Request) {
-  const store = await openStore(req);
-  if (!store) return [] as Packet[];
-  try {
-    const current = (await store.get(inboxKey(roomId, playerId), {
-      type: "json",
-      consistency: "strong",
-    })) as Packet[] | null;
-    const now = Date.now();
-    return (Array.isArray(current) ? current : []).filter((item) => now - (item.at ?? now) < 25_000);
-  } catch {
-    return [];
-  }
+export async function readRtcMessages(roomId: string, playerId: string, req?: Request) {
+  return readInbox(roomId, playerId, req);
 }
 
-export function dedupeSignals(signals: RtcSignal[]) {
-  const seen = new Set<string>();
-  const unique: RtcSignal[] = [];
-  for (const signal of signals) {
-    const key = [
-      signal.from,
-      signal.to,
-      signal.description?.type ?? "",
-      signal.description?.sdp?.slice(0, 48) ?? "",
-      (signal.candidate as { candidate?: string } | null)?.candidate ?? "",
-    ].join("|");
-    if (seen.has(key)) continue;
-    seen.add(key);
-    unique.push(signal);
-  }
-  return unique;
+export async function ackRtcMessages(roomId: string, playerId: string, ids: string[], req?: Request) {
+  const drop = new Set(ids);
+  const current = await readInbox(roomId, playerId, req);
+  await writeInbox(
+    roomId,
+    playerId,
+    current.filter((item) => !drop.has(item.id)),
+    req,
+  );
 }
