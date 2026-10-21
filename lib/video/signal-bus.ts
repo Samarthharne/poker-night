@@ -1,6 +1,7 @@
 import type { Room } from "@/types/room";
 import { saveRoom, saveRoomNow } from "@/lib/store/rooms";
 import { RTC_MESSAGE_TTL_MS, isRtcMessageType, keepRtcSignals, samePlayerId, type RtcMessage } from "./rtc-protocol";
+import type { PlayerRtcSignal } from "@/types/player";
 
 export type RtcSignal = {
   from: string;
@@ -76,6 +77,24 @@ export async function persistRtcMessage(room: Room, message: RtcMessage, flush =
       at: now,
     },
   ], now);
+  if (
+    (message.type === "offer" || message.type === "answer" || message.type === "ice-restart") &&
+    message.payload.sdp?.sdp
+  ) {
+    const sender = room.players.find((player) => samePlayerId(player.id, message.from));
+    if (sender) {
+      const signal: PlayerRtcSignal = {
+        id: message.id,
+        type: message.type,
+        to: message.to,
+        sessionId: message.sessionId,
+        sdp: message.payload.sdp.sdp,
+        sdpType: message.payload.sdp.type || message.type,
+        at: now,
+      };
+      sender.rtcSignal = signal;
+    }
+  }
   if (flush) await saveRoomNow(room);
   else saveRoom(room);
 }

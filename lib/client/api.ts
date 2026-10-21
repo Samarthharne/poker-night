@@ -137,6 +137,7 @@ export async function sendRtcSignal(code: string, body: Record<string, unknown>)
     method: "POST",
     headers: authHeaders(code),
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(4_000),
   });
   return res.json().catch(() => ({ ok: false }));
 }

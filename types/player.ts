@@ -1,5 +1,15 @@
 import type { Card } from "./poker";
 
+export type PlayerRtcSignal = {
+  id: string;
+  type: "offer" | "answer" | "ice-restart";
+  to: string;
+  sessionId: string;
+  sdp: string;
+  sdpType: string;
+  at: number;
+};
+
 export type Player = {
   id: string;
   token: string;
@@ -21,6 +31,7 @@ export type Player = {
   isReady: boolean;
   contributedThisHand: number;
   removed?: boolean;
+  rtcSignal?: PlayerRtcSignal;
 };
 
 export type PublicPlayer = Omit<Player, "token" | "holeCards"> & {

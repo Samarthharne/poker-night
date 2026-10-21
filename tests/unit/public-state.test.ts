@@ -46,6 +46,19 @@ describe("public snapshot", () => {
     ];
     const snapshot = toSnapshot(room, viewer.id);
     expect(snapshot.rtcMessages?.map((item) => item.id)).toEqual(["for-you"]);
+    other.rtcSignal = {
+      id: "seat-offer",
+      type: "offer",
+      to: viewer.id,
+      sessionId: "s",
+      sdp: "v=0",
+      sdpType: "offer",
+      at: Date.now(),
+    };
+    expect(toSnapshot(room, viewer.id).players.find((player) => player.id === other.id)?.rtcSignal?.id).toBe(
+      "seat-offer",
+    );
+    expect(toSnapshot(room, other.id).players.find((player) => player.id === other.id)?.rtcSignal).toBeUndefined();
     room.rtcSignals = [
       {
         id: "dashed",

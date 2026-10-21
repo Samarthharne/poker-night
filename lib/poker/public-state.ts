@@ -97,5 +97,9 @@ function publicPlayer(
     contributedThisHand: player.contributedThisHand,
     holeCards: reveal ? player.holeCards ?? null : null,
     hasCards: Boolean(player.holeCards) && !player.folded,
+    rtcSignal:
+      viewerId && player.rtcSignal && samePlayerId(player.rtcSignal.to, viewerId)
+        ? player.rtcSignal
+        : undefined,
   };
 }

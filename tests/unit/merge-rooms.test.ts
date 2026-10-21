@@ -88,6 +88,31 @@ describe("room snapshot merge", () => {
     expect(merged.rtcSignals?.map((item) => item.id).sort()).toEqual(["answer-b", "offer-a"]);
   });
 
+  it("keeps the newer seat camera offer across instances", () => {
+    const left = testRoom();
+    const right = structuredClone(left);
+    left.players[0]!.rtcSignal = {
+      id: "old",
+      type: "offer",
+      to: left.players[1]!.id,
+      sessionId: "s",
+      sdp: "old",
+      sdpType: "offer",
+      at: 1,
+    };
+    right.players[0]!.rtcSignal = {
+      id: "new",
+      type: "offer",
+      to: right.players[1]!.id,
+      sessionId: "s",
+      sdp: "new",
+      sdpType: "offer",
+      at: 9,
+    };
+    const merged = mergeRoomPair(left, right);
+    expect(merged.players[0]?.rtcSignal?.id).toBe("new");
+  });
+
   it("unions rooms from two instances by id", () => {
     const a = testRoom(["Ava", "Ben"]);
     const b = testRoom(["Cam", "Dee"]);

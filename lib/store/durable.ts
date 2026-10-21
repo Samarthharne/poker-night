@@ -168,12 +168,15 @@ function mergePlayers(preferred: Room["players"], other: Room["players"]) {
     const present = presenceOf(main, extra);
     const base = main ?? extra;
     if (!base || base.removed) continue;
+    const newerSignal =
+      (extra?.rtcSignal?.at ?? 0) > (main?.rtcSignal?.at ?? 0) ? extra?.rtcSignal : main?.rtcSignal;
     merged.push({
       ...base,
       isConnected: present?.isConnected ?? base.isConnected,
       lastSeenAt: Math.max(main?.lastSeenAt ?? 0, extra?.lastSeenAt ?? 0),
       cameraEnabled: present?.cameraEnabled ?? base.cameraEnabled,
       microphoneEnabled: present?.microphoneEnabled ?? base.microphoneEnabled,
+      rtcSignal: newerSignal,
     });
   }
   return merged;
@@ -278,7 +281,7 @@ export function mergeRoomPair(left: Room, right: Room): Room {
   const other = live === left ? right : left;
   const generation = Math.max(left.generation ?? 0, right.generation ?? 0);
   const idle = !live.game || live.status === "lobby" || live.status === "closed";
-  const players = mergePlayers(live.players, idle ? live.players : other.players).map((player) =>
+  const players = mergePlayers(live.players, other.players).map((player) =>
     idle
       ? {
           ...player,

@@ -61,29 +61,6 @@ function attachLocal(pc: RTCPeerConnection, stream: MediaStream | null) {
   }
 }
 
-function waitForIceGathering(pc: RTCPeerConnection, ms = 800) {
-  if (pc.iceGatheringState === "complete") return Promise.resolve();
-  return new Promise<void>((resolve) => {
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      pc.removeEventListener("icegatheringstatechange", onChange);
-      pc.removeEventListener("icecandidate", onCandidate);
-      resolve();
-    };
-    const onChange = () => {
-      if (pc.iceGatheringState === "complete") finish();
-    };
-    const onCandidate = (event: RTCPeerConnectionIceEvent) => {
-      if (event.candidate?.candidate?.includes("typ relay")) finish();
-    };
-    pc.addEventListener("icegatheringstatechange", onChange);
-    pc.addEventListener("icecandidate", onCandidate);
-    window.setTimeout(finish, ms);
-  });
-}
-
 async function addQueuedIce(pc: RTCPeerConnection, queued: RTCIceCandidateInit[]) {
   const leftover: RTCIceCandidateInit[] = [];
   for (const candidate of queued) {
@@ -355,11 +332,13 @@ export function usePeerMedia(
       publishDiag();
     }
 
-    async function negotiate(peerId: string, iceRestart = false) {
+    async function negotiate(peerId: string, iceRestart = false, force = false) {
       const me = selfRef.current ?? "";
-      if (!shouldOffer(me, peerId)) return;
       const slot = ensureSlot(peerId);
-      if (!slot || slot.makingOffer || slot.pc.signalingState !== "stable") return;
+      if (!slot) return;
+      if (!force && !shouldOffer(me, peerId)) return;
+      if (force && (slot.pc.currentRemoteDescription || Date.now() - slot.openedAt < 2_000)) return;
+      if (slot.makingOffer || slot.pc.signalingState !== "stable") return;
       if (Date.now() < slot.backoffUntil) return;
       slot.makingOffer = true;
       slot.lastAttemptAt = Date.now();
@@ -368,7 +347,6 @@ export function usePeerMedia(
         const offer = await slot.pc.createOffer({ iceRestart });
         if (closed || slot.pc.signalingState !== "stable") return;
         await slot.pc.setLocalDescription(offer);
-        await waitForIceGathering(slot.pc);
         if (closed || slots.get(peerId) !== slot) return;
         const local = slot.pc.localDescription;
         if (!local) return;
@@ -441,6 +419,8 @@ export function usePeerMedia(
             makingOffer: slot.makingOffer,
             signalingState: slot.pc.signalingState,
             incomingType: "offer",
+            hasRemoteDescription: Boolean(slot.pc.currentRemoteDescription),
+            iceConnectionState: slot.pc.iceConnectionState,
           });
           if (glare.ignore) return;
           if (glare.rollback) {
@@ -461,7 +441,6 @@ export function usePeerMedia(
           attachLocal(live.pc, streamRef.current);
           const answer = await live.pc.createAnswer();
           await live.pc.setLocalDescription(answer);
-          await waitForIceGathering(live.pc);
           if (closed || slots.get(peerId) !== live) return;
           const local = live.pc.localDescription;
           if (local) {
@@ -561,7 +540,8 @@ export function usePeerMedia(
             hasRemoteDescription: hasRemote,
           })
         ) {
-          void negotiate(id);
+          const me = selfRef.current ?? "";
+          void negotiate(id, false, !shouldOffer(me, id));
         }
       }
       publishDiag();

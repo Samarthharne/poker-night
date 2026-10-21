@@ -54,12 +54,19 @@ export function glareDecision(input: {
   makingOffer: boolean;
   signalingState: string;
   incomingType: RtcMessage["type"];
+  hasRemoteDescription?: boolean;
+  iceConnectionState?: string;
 }) {
   if (input.incomingType !== "offer") return { ignore: false, rollback: false };
   const colliding = input.makingOffer || input.signalingState !== "stable";
   if (!colliding) return { ignore: false, rollback: false };
+  const live =
+    Boolean(input.hasRemoteDescription) ||
+    input.iceConnectionState === "checking" ||
+    input.iceConnectionState === "connected" ||
+    input.iceConnectionState === "completed";
   const polite = !isOfferer(input.selfId, input.peerId);
-  if (!polite) return { ignore: true, rollback: false };
+  if (!polite && live) return { ignore: true, rollback: false };
   return { ignore: false, rollback: true };
 }
 

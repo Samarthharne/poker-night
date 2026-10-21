@@ -28,7 +28,7 @@ import { clearRoomToken } from "@/lib/client/session";
 import { useRoomSync } from "@/lib/realtime/use-room";
 import { useLocalMedia } from "@/lib/video/use-local-media";
 import { usePeerMedia } from "@/lib/video/use-peer-media";
-import { samePlayerId } from "@/lib/video/rtc-protocol";
+import { mergeRtcMessages, samePlayerId } from "@/lib/video/rtc-protocol";
 import { WebrtcDebugPanel } from "@/components/video/WebrtcDebugPanel";
 import { cn, formatChips } from "@/lib/utils";
 import type { RoomSnapshot } from "@/types/room";
@@ -54,14 +54,32 @@ export function RoomExperience({ code }: { code: string }) {
         .filter((id): id is string => Boolean(id) && !samePlayerId(id, snapshot?.you?.id)),
     [snapshot],
   );
-  const peers = usePeerMedia(
-    code,
-    snapshot?.you?.id,
-    peerIds,
-    media.stream,
-    joined,
-    snapshot?.rtcMessages ?? [],
-  );
+  const rtcIncoming = useMemo(() => {
+    const you = snapshot?.you?.id;
+    const piggy = (snapshot?.players ?? []).flatMap((player) => {
+      const signal = player.rtcSignal;
+      if (!signal?.sdp || !samePlayerId(signal.to, you)) return [];
+      return [
+        {
+          id: signal.id,
+          roomId: snapshot?.id ?? "",
+          from: player.id,
+          to: signal.to,
+          type: signal.type,
+          sessionId: signal.sessionId,
+          createdAt: signal.at,
+          payload: {
+            sdp: {
+              type: signal.sdpType || (signal.type === "answer" ? "answer" : "offer"),
+              sdp: signal.sdp,
+            },
+          },
+        },
+      ];
+    });
+    return mergeRtcMessages(snapshot?.rtcMessages, piggy);
+  }, [snapshot]);
+  const peers = usePeerMedia(code, snapshot?.you?.id, peerIds, media.stream, joined, rtcIncoming);
   const remoteStreams = peers.remoteStreams;
   const [audioBlocked, setAudioBlocked] = useState(false);
   const cameraBooted = useRef(false);

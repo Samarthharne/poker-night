@@ -201,15 +201,31 @@ describe("duplicate and stale signaling", () => {
 });
 
 describe("perfect negotiation glare", () => {
-  it("impolite offerer ignores a colliding offer", () => {
+  it("impolite offerer ignores a colliding offer after ICE is live", () => {
     const glare = glareDecision({
       selfId: a,
       peerId: b,
       makingOffer: true,
       signalingState: "have-local-offer",
       incomingType: "offer",
+      hasRemoteDescription: true,
+      iceConnectionState: "connected",
     });
     expect(glare.ignore).toBe(true);
+  });
+
+  it("impolite offerer accepts an offer if the call never connected", () => {
+    const glare = glareDecision({
+      selfId: a,
+      peerId: b,
+      makingOffer: true,
+      signalingState: "have-local-offer",
+      incomingType: "offer",
+      hasRemoteDescription: false,
+      iceConnectionState: "new",
+    });
+    expect(glare.ignore).toBe(false);
+    expect(glare.rollback).toBe(true);
   });
 
   it("polite peer rolls back on glare", () => {
