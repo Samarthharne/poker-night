@@ -1,5 +1,6 @@
 import type { Room, RoomSnapshot } from "@/types/room";
 import type { Player, PublicPlayer } from "@/types/player";
+import { RTC_MESSAGE_TTL_MS, isRtcMessageType } from "@/lib/video/rtc-protocol";
 import { canAct, legalActions } from "./betting";
 
 export function toSnapshot(
@@ -57,7 +58,16 @@ export function toSnapshot(
         : [],
     serverTime: Date.now(),
     connected: true,
+    rtcMessages: viewerInbox(room, viewerId),
   };
+}
+
+function viewerInbox(room: Room, viewerId: string | null): NonNullable<RoomSnapshot["rtcMessages"]> {
+  if (!viewerId) return [];
+  const now = Date.now();
+  return (room.rtcSignals ?? [])
+    .filter((item) => item.to === viewerId && now - (item.createdAt ?? item.at) < RTC_MESSAGE_TTL_MS)
+    .filter((item) => isRtcMessageType(item.type));
 }
 
 function publicPlayer(

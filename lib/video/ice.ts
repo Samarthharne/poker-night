@@ -45,5 +45,6 @@ export function rtcConfiguration(iceServers?: RTCIceServer[]): RTCConfiguration 
     iceServers: iceServers?.length ? iceServers : stunServers(),
     bundlePolicy: "max-bundle",
     rtcpMuxPolicy: "require",
+    iceCandidatePoolSize: 4,
   };
 }

@@ -252,6 +252,21 @@ function liveEqual(left: Room[], right: Room[]) {
   return true;
 }
 
+function mergeRtcSignals(
+  left: Room["rtcSignals"] = [],
+  right: Room["rtcSignals"] = [],
+): NonNullable<Room["rtcSignals"]> {
+  const now = Date.now();
+  const map = new Map<string, NonNullable<Room["rtcSignals"]>[number]>();
+  for (const item of [...(left ?? []), ...(right ?? [])]) {
+    const created = item.createdAt ?? item.at ?? 0;
+    if (now - created > 20_000) continue;
+    const id = item.id || `${item.from}:${item.to}:${created}:${item.type || "legacy"}`;
+    map.set(id, { ...item, id, createdAt: created, at: item.at ?? created });
+  }
+  return [...map.values()].sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0)).slice(-160);
+}
+
 export function mergeRoomPair(left: Room, right: Room): Room {
   const live = pickLive(left, right);
   const other = live === left ? right : left;
@@ -280,7 +295,7 @@ export function mergeRoomPair(left: Room, right: Room): Room {
       locked: false,
       game: null,
       players,
-      rtcSignals: [...(other.rtcSignals ?? []), ...(live.rtcSignals ?? [])].slice(-160),
+      rtcSignals: mergeRtcSignals(other.rtcSignals, live.rtcSignals),
       messages: live.messages.length >= other.messages.length ? live.messages : other.messages,
     };
   }
@@ -297,7 +312,7 @@ export function mergeRoomPair(left: Room, right: Room): Room {
     inviteHash: live.inviteHash || other.inviteHash,
     inviteSealed: live.inviteSealed || other.inviteSealed,
     inviteExpiresAt: live.inviteExpiresAt ?? other.inviteExpiresAt,
-    rtcSignals: [...(other.rtcSignals ?? []), ...(live.rtcSignals ?? [])].slice(-160),
+    rtcSignals: mergeRtcSignals(other.rtcSignals, live.rtcSignals),
     messages: live.messages.length >= other.messages.length ? live.messages : other.messages,
   };
 }

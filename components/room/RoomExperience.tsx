@@ -56,6 +56,7 @@ export function RoomExperience({ code }: { code: string }) {
     peerIds,
     media.stream,
     joined,
+    snapshot?.rtcMessages ?? [],
   );
   const remoteStreams = peers.remoteStreams;
   const [audioBlocked, setAudioBlocked] = useState(false);

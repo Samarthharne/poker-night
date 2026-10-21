@@ -3,6 +3,7 @@ import {
   isExpiredMessage,
   isOfferer,
   isStaleSession,
+  mergeRtcMessages,
   nextRetryDelay,
   pairSessionId,
   parseRtcMessage,
@@ -51,6 +52,32 @@ describe("offer polling", () => {
     ).toBe(true);
     expect(shouldRetryStuckOffer("have-local-offer", false, Date.now() - 6_000)).toBe(true);
     expect(shouldRetryStuckOffer("have-local-offer", false, Date.now() - 1_000)).toBe(false);
+  });
+});
+
+describe("room-backed signaling", () => {
+  it("keeps unique live offers from two instances", () => {
+    const offer = {
+      id: "offer-1",
+      roomId: "room-1",
+      from: a,
+      to: b,
+      type: "offer" as const,
+      sessionId: "sess-1",
+      createdAt: Date.now(),
+      payload: { sdp: { type: "offer", sdp: "v=0" } },
+    };
+    const merged = mergeRtcMessages([offer], [{ ...offer, id: "offer-2", createdAt: Date.now() }]);
+    expect(merged.map((item) => item.id).sort()).toEqual(["offer-1", "offer-2"]);
+    expect(mergeRtcMessages([offer], [{ ...offer, createdAt: Date.now() - 30_000 }])).toHaveLength(1);
+  });
+
+  it("fills an empty roomId from the authenticated room", () => {
+    const parsed = parseRtcMessage(
+      { id: "msg-2", to: b, type: "offer", sessionId: "sess-1", roomId: "", payload: { sdp: { type: "offer", sdp: "v=0" } } },
+      { roomId: "room-1", from: a },
+    );
+    expect(parsed?.roomId).toBe("room-1");
   });
 });
 

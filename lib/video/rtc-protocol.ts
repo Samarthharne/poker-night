@@ -67,9 +67,10 @@ export function parseRtcMessage(input: unknown, fallback: { roomId: string; from
   if (isRtcMessageType(body.type) && typeof body.id === "string" && typeof body.sessionId === "string") {
     const createdAt = typeof body.createdAt === "number" ? body.createdAt : Date.now();
     const payload = (body.payload ?? {}) as RtcMessage["payload"];
+    const roomId = typeof body.roomId === "string" && body.roomId ? body.roomId : fallback.roomId;
     return {
       id: body.id,
-      roomId: typeof body.roomId === "string" ? body.roomId : fallback.roomId,
+      roomId,
       from: fallback.from,
       to,
       type: body.type,
@@ -141,6 +142,28 @@ export function queueIceCandidate(
   }
   if (!remoteReady) return { queued: [...queued, candidate], apply: [] as RTCIceCandidateInit[] };
   return { queued, apply: [candidate] };
+}
+
+export function isRtcMessage(value: unknown): value is RtcMessage {
+  if (!value || typeof value !== "object") return false;
+  const item = value as RtcMessage;
+  return (
+    typeof item.id === "string" &&
+    isRtcMessageType(item.type) &&
+    typeof item.from === "string" &&
+    typeof item.to === "string" &&
+    typeof item.sessionId === "string" &&
+    typeof item.createdAt === "number"
+  );
+}
+
+export function mergeRtcMessages(left?: unknown, right?: unknown, now = Date.now()) {
+  const map = new Map<string, RtcMessage>();
+  for (const item of [...(Array.isArray(left) ? left : []), ...(Array.isArray(right) ? right : [])]) {
+    if (!isRtcMessage(item) || isExpiredMessage(item, now)) continue;
+    map.set(item.id, item);
+  }
+  return [...map.values()].sort((a, b) => a.createdAt - b.createdAt).slice(-160);
 }
 
 export function signalingAllowed(input: {

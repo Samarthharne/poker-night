@@ -57,6 +57,37 @@ describe("room snapshot merge", () => {
     expect(merged.status).toBe("lobby");
   });
 
+  it("keeps WebRTC offers from both instances", () => {
+    const left = testRoom();
+    const right = structuredClone(left);
+    left.rtcSignals = [
+      {
+        id: "offer-a",
+        from: "a",
+        to: "b",
+        type: "offer",
+        sessionId: "s",
+        createdAt: Date.now(),
+        at: Date.now(),
+        payload: { sdp: { type: "offer", sdp: "v=0" } },
+      },
+    ];
+    right.rtcSignals = [
+      {
+        id: "answer-b",
+        from: "b",
+        to: "a",
+        type: "answer",
+        sessionId: "s",
+        createdAt: Date.now(),
+        at: Date.now(),
+        payload: { sdp: { type: "answer", sdp: "v=0" } },
+      },
+    ];
+    const merged = mergeRoomPair(left, right);
+    expect(merged.rtcSignals?.map((item) => item.id).sort()).toEqual(["answer-b", "offer-a"]);
+  });
+
   it("unions rooms from two instances by id", () => {
     const a = testRoom(["Ava", "Ben"]);
     const b = testRoom(["Cam", "Dee"]);

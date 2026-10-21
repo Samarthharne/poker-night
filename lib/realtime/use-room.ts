@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { eventsUrl, fetchRoom } from "@/lib/client/api";
 import { emitVideoSignal } from "@/lib/video/signal-client";
+import { mergeRtcMessages } from "@/lib/video/rtc-protocol";
 import type { RoomSnapshot } from "@/types/room";
 
 const PHASE_SCORE: Record<string, number> = {
@@ -36,18 +37,19 @@ export function useRoomSync(code: string, enabled: boolean) {
 
   const apply = useCallback((next: RoomSnapshot) => {
     setSnapshot((prev) => {
-      const incoming = prev?.you && !next.you ? { ...next, you: prev.you } : next;
+      const rtcMessages = mergeRtcMessages(prev?.rtcMessages, next.rtcMessages);
+      const incoming = prev?.you && !next.you ? { ...next, you: prev.you, rtcMessages } : { ...next, rtcMessages };
       if (!prev) return incoming;
       const prevGen = prev.generation ?? 0;
       const nextGen = incoming.generation ?? 0;
-      if (prevGen > nextGen) return prev;
+      if (prevGen > nextGen) return { ...prev, rtcMessages };
       const incomingIdle =
         incoming.status === "lobby" || incoming.status === "closed" || !incoming.game;
       if (incomingIdle) return incoming;
       const prevIdle = prev.status === "lobby" || prev.status === "closed" || !prev.game;
-      if (prevIdle && nextGen <= prevGen) return prev;
+      if (prevIdle && nextGen <= prevGen) return { ...prev, rtcMessages };
       if (nextGen > prevGen) return incoming;
-      if (progress(prev) > progress(incoming)) return prev;
+      if (progress(prev) > progress(incoming)) return { ...prev, rtcMessages };
       return incoming;
     });
     setConnected(true);

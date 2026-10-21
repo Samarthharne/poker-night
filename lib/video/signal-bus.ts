@@ -1,11 +1,12 @@
 import type { Room } from "@/types/room";
-import { saveRoom } from "@/lib/store/rooms";
+import { saveRoom, saveRoomNow } from "@/lib/store/rooms";
+import { RTC_MESSAGE_TTL_MS, isRtcMessageType, type RtcMessage } from "./rtc-protocol";
 
 export type RtcSignal = {
   from: string;
   to: string;
   description?: { type: string; sdp?: string };
-  candidate?: Record<string, unknown> | null;
+  candidate?: RTCIceCandidateInit | null;
   at?: number;
 };
 
@@ -44,20 +45,86 @@ export function publishSignal(roomId: string, signal: RtcSignal) {
 
 export function persistSignal(room: Room, signal: RtcSignal) {
   const now = Date.now();
-  room.rtcSignals = [...(room.rtcSignals ?? []), { ...signal, at: now }]
-    .filter((item) => now - (item.at ?? now) < 20_000)
+  const type: RtcMessage["type"] = signal.description?.type === "answer" ? "answer" : signal.description ? "offer" : "ice-candidate";
+  room.rtcSignals = [
+    ...(room.rtcSignals ?? []),
+    {
+      id: `legacy-${signal.from}-${signal.to}-${now}`,
+      roomId: room.id,
+      from: signal.from,
+      to: signal.to,
+      type,
+      sessionId: "legacy",
+      createdAt: now,
+      at: now,
+      payload: {
+        sdp: signal.description,
+        candidate: signal.candidate ?? null,
+      },
+    },
+  ]
+    .filter((item) => now - (item.createdAt ?? item.at) < RTC_MESSAGE_TTL_MS)
     .slice(-160);
   if (signal.description) saveRoom(room);
 }
 
-export function takePersistedSignals(room: Room, playerId: string) {
+export async function persistRtcMessage(room: Room, message: RtcMessage, flush = false) {
   const now = Date.now();
-  const all = (room.rtcSignals ?? []).filter((item) => now - (item.at ?? now) < 20_000);
+  const seen = new Set<string>();
+  room.rtcSignals = [
+    ...(room.rtcSignals ?? []),
+    {
+      ...message,
+      roomId: room.id,
+      at: now,
+    },
+  ]
+    .filter((item) => now - (item.createdAt ?? item.at) < RTC_MESSAGE_TTL_MS)
+    .filter((item) => {
+      if (!item.id || seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    })
+    .slice(-160);
+  if (flush) await saveRoomNow(room);
+  else saveRoom(room);
+}
+
+export function takePersistedRtcMessages(room: Room, playerId: string): RtcMessage[] {
+  const now = Date.now();
+  const all = (room.rtcSignals ?? []).filter((item) => now - (item.createdAt ?? item.at) < RTC_MESSAGE_TTL_MS);
   if (all.length !== (room.rtcSignals ?? []).length) {
     room.rtcSignals = all;
     saveRoom(room);
   }
-  return all.filter((item) => item.to === playerId);
+  return all
+    .filter((item) => item.to === playerId && isRtcMessageType(item.type))
+    .map((item) => ({
+      id: item.id,
+      roomId: room.id,
+      from: item.from,
+      to: item.to,
+      type: item.type,
+      sessionId: item.sessionId,
+      createdAt: item.createdAt ?? item.at,
+      payload: {
+        sdp: item.payload?.sdp ?? item.description,
+        candidate: item.payload?.candidate ?? item.candidate ?? null,
+      },
+    }));
+}
+
+export function ackRoomRtcMessages(room: Room, playerId: string, ids: string[]) {
+  if (!ids.length) return;
+  const drop = new Set(ids);
+  const next = (room.rtcSignals ?? []).filter((item) => item.to !== playerId || !drop.has(item.id));
+  if (next.length === (room.rtcSignals ?? []).length) return;
+  room.rtcSignals = next;
+  saveRoom(room);
+}
+
+export function takePersistedSignals(room: Room, playerId: string) {
+  return takePersistedRtcMessages(room, playerId);
 }
 
 export function subscribeSignals(roomId: string, playerId: string, listener: Waiter) {

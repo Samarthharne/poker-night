@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
 import { clientKey, rateLimit } from "@/lib/admin/rate-limit";
 import { loadRoomPlayer } from "@/lib/api/guard";
-import { publishSignal } from "@/lib/video/signal-bus";
+import { ackRoomRtcMessages, persistRtcMessage, publishSignal, takePersistedRtcMessages } from "@/lib/video/signal-bus";
 import { ackRtcMessages, appendRtcMessage, readRtcMessages } from "@/lib/video/signal-store";
-import { isExpiredMessage, parseRtcMessage, signalingAllowed } from "@/lib/video/rtc-protocol";
+import { isExpiredMessage, mergeRtcMessages, parseRtcMessage, signalingAllowed } from "@/lib/video/rtc-protocol";
 
 export const dynamic = "force-dynamic";
 
@@ -21,12 +21,15 @@ export async function POST(
   const body = (await req.json().catch(() => null)) as Record<string, unknown> | null;
   if (Array.isArray(body?.ackIds)) {
     const ids = body.ackIds.filter((item): item is string => typeof item === "string").slice(0, 80);
+    ackRoomRtcMessages(loaded.room, loaded.player.id, ids);
     await ackRtcMessages(loaded.room.id, loaded.player.id, ids, req);
     return NextResponse.json({ ok: true });
   }
 
   const message = parseRtcMessage(body, { roomId: loaded.room.id, from: loaded.player.id });
   if (!message) return NextResponse.json({ error: "Missing video signal." }, { status: 400 });
+  message.from = loaded.player.id;
+  message.roomId = loaded.room.id;
   if (isExpiredMessage(message)) {
     return NextResponse.json({ error: "Signal expired." }, { status: 400 });
   }
@@ -42,8 +45,6 @@ export async function POST(
   ) {
     return NextResponse.json({ error: "That player is not in the room." }, { status: 404 });
   }
-  message.from = loaded.player.id;
-  message.roomId = loaded.room.id;
   publishSignal(loaded.room.id, {
     from: message.from,
     to: message.to,
@@ -51,6 +52,8 @@ export async function POST(
     candidate: (message.payload.candidate as Record<string, unknown> | null) ?? null,
     at: message.createdAt,
   });
+  const flush = message.type === "offer" || message.type === "answer" || message.type === "ice-restart";
+  await persistRtcMessage(loaded.room, message, flush);
   const stored = await appendRtcMessage(loaded.room.id, message, req);
   return NextResponse.json({ ok: true, stored, id: message.id });
 }
@@ -62,7 +65,10 @@ export async function GET(
   const { code } = await ctx.params;
   const loaded = await loadRoomPlayer(req, code);
   if ("error" in loaded) return loaded.error;
-  const messages = await readRtcMessages(loaded.room.id, loaded.player.id, req);
+  const messages = mergeRtcMessages(
+    takePersistedRtcMessages(loaded.room, loaded.player.id),
+    await readRtcMessages(loaded.room.id, loaded.player.id, req),
+  );
   return NextResponse.json(
     { messages, signals: messages },
     { headers: { "Cache-Control": "no-store" } },

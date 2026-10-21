@@ -78,7 +78,9 @@ export function PlayerSeat({
           fallback={
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[#120c10]">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-burgundy text-lg font-semibold">
-                {hasMedia && !isYou && !hasVideo ? "…" : initials(player.displayName)}
+                {!isYou && player.cameraEnabled && !hasVideo
+                  ? "…"
+                  : initials(player.displayName)}
               </div>
             </div>
           }

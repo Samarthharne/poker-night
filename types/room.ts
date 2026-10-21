@@ -1,3 +1,4 @@
+import type { RtcMessage } from "@/lib/video/rtc-protocol";
 import type { Card, GamePhase, LegalAction, SidePot, Winner } from "./poker";
 import type { Player, PublicPlayer } from "./player";
 
@@ -55,13 +56,11 @@ export type Room = {
   game: GameState | null;
   messages: ChatMessage[];
   handHistory: string[];
-  rtcSignals?: {
-    from: string;
-    to: string;
-    description?: { type: string; sdp?: string };
-    candidate?: Record<string, unknown> | null;
+  rtcSignals?: (RtcMessage & {
     at: number;
-  }[];
+    description?: { type: string; sdp?: string };
+    candidate?: RTCIceCandidateInit | null;
+  })[];
 };
 
 export type PublicGameState = Omit<GameState, "deck"> & {
@@ -88,6 +87,7 @@ export type RoomSnapshot = {
   messages: ChatMessage[];
   you: PublicPlayer | null;
   legalActions: LegalAction[];
-  serverTime: number;
-  connected: boolean;
+    serverTime: number;
+    connected: boolean;
+    rtcMessages?: RtcMessage[];
 };

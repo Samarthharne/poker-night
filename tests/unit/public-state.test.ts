@@ -15,6 +15,37 @@ describe("public snapshot", () => {
     expect(snapshot.you?.holeCards).toHaveLength(2);
     const other = snapshot.players.find((player) => player.id !== viewer.id);
     expect(other?.holeCards).toBeNull();
+    expect(snapshot.rtcMessages).toEqual([]);
+  });
+
+  it("only returns WebRTC messages addressed to the viewer", () => {
+    const room = testRoom();
+    const viewer = room.players[0]!;
+    const other = room.players[1]!;
+    room.rtcSignals = [
+      {
+        id: "for-you",
+        from: other.id,
+        to: viewer.id,
+        type: "offer",
+        sessionId: "s",
+        createdAt: Date.now(),
+        at: Date.now(),
+        payload: { sdp: { type: "offer", sdp: "v=0" } },
+      },
+      {
+        id: "for-them",
+        from: viewer.id,
+        to: other.id,
+        type: "answer",
+        sessionId: "s",
+        createdAt: Date.now(),
+        at: Date.now(),
+        payload: { sdp: { type: "answer", sdp: "v=0" } },
+      },
+    ];
+    const snapshot = toSnapshot(room, viewer.id);
+    expect(snapshot.rtcMessages?.map((item) => item.id)).toEqual(["for-you"]);
   });
 
   it("reports lobby after end game even if status lagged", () => {

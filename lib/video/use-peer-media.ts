@@ -18,7 +18,7 @@ import {
   type PeerDiagnostics,
 } from "./peer-session";
 import { onVideoSignal } from "./signal-client";
-import { createRtcMessage, nextRetryDelay, pairSessionId, type RtcMessage } from "./rtc-protocol";
+import { createRtcMessage, mergeRtcMessages, nextRetryDelay, pairSessionId, type RtcMessage } from "./rtc-protocol";
 
 type Slot = {
   pc: RTCPeerConnection;
@@ -78,6 +78,7 @@ export function usePeerMedia(
   peerIds: string[],
   localStream: MediaStream | null,
   enabled: boolean,
+  incomingMessages: unknown[] = [],
 ) {
   const [remoteStreams, setRemoteStreams] = useState<Record<string, MediaStream>>({});
   const [diagnostics, setDiagnostics] = useState<Record<string, PeerDiagnostics>>({});
@@ -96,9 +97,11 @@ export function usePeerMedia(
   const iceReadyRef = useRef(false);
   const roomIdRef = useRef("");
   const channelRef = useRef<string | null>(null);
+  const incomingRef = useRef(incomingMessages);
   streamRef.current = localStream;
   selfRef.current = selfId;
   wantedRef.current = peerIds;
+  incomingRef.current = incomingMessages;
 
   const remotesRef = useRef(remoteStreams);
   remotesRef.current = remoteStreams;
@@ -431,10 +434,11 @@ export function usePeerMedia(
       }
       for (const id of wanted) ensureSlot(id);
       try {
-        const messages = (await fetchRtcSignals(code)) as RtcMessage[];
+        const messages = mergeRtcMessages(incomingRef.current, await fetchRtcSignals(code));
         for (const message of messages) await apply(message);
       } catch (error) {
         rtcLog("poll failed", { error: String(error) });
+        for (const message of mergeRtcMessages(incomingRef.current)) await apply(message);
       }
       for (const id of wanted) {
         const slot = slots.get(id);

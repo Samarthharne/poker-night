@@ -17,7 +17,16 @@ export function mintTurnCredential(secret: string, nowMs = Date.now(), ttlSecond
 }
 
 function serverEnv(name: string) {
-  return process.env[name] ?? "";
+  const bag: Record<string, string | undefined> = {
+    METERED_API_KEY: process.env.METERED_API_KEY,
+    METERED_DOMAIN: process.env.METERED_DOMAIN,
+    TURN_URLS: process.env.TURN_URLS,
+    TURN_USERNAME: process.env.TURN_USERNAME,
+    TURN_CREDENTIAL: process.env.TURN_CREDENTIAL,
+    TURN_SECRET: process.env.TURN_SECRET,
+    TURN_TTL_SECONDS: process.env.TURN_TTL_SECONDS,
+  };
+  return bag[name] ?? "";
 }
 
 export function meteredCredentialsUrl() {
