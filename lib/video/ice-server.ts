@@ -1,6 +1,13 @@
 import { createHmac } from "crypto";
 import { parseTurnUrls, stunServers, turnIceServers, type IceResponse } from "./ice";
 
+const METERED_TURN_URLS = [
+  "turn:global.relay.metered.ca:80",
+  "turn:global.relay.metered.ca:80?transport=tcp",
+  "turn:global.relay.metered.ca:443",
+  "turns:global.relay.metered.ca:443?transport=tcp",
+];
+
 export function mintTurnCredential(secret: string, nowMs = Date.now(), ttlSeconds = 21_600) {
   const ttl = Math.max(300, ttlSeconds);
   const expires = Math.floor(nowMs / 1000) + ttl;
@@ -66,8 +73,9 @@ export function buildIceResponse(now = Date.now()): IceResponse {
     };
   }
 
-  if (turnUrls.length && staticUser && staticPass) {
-    iceServers.push(...turnIceServers(turnUrls, staticUser, staticPass));
+  if (staticUser && staticPass) {
+    const urls = turnUrls.length ? turnUrls : METERED_TURN_URLS;
+    iceServers.push(...turnIceServers(urls, staticUser, staticPass));
     return {
       iceServers,
       turnConfigured: true,

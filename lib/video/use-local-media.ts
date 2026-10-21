@@ -30,8 +30,8 @@ async function requestStream(video: boolean, audio: boolean) {
   const attempts: MediaStreamConstraints[] = [];
   if (video && audio) {
     attempts.push(
-      { video: { facingMode: "user" }, audio: { echoCancellation: true, noiseSuppression: true } },
       { video: true, audio: true },
+      { video: { facingMode: "user" }, audio: { echoCancellation: true, noiseSuppression: true } },
     );
   }
   if (video) attempts.push({ video: true, audio: false });

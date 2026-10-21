@@ -51,6 +51,17 @@ describe("WebRTC ICE config", () => {
     expect(broken.warning).toMatch(/credentials are missing/);
   });
 
+  it("uses Metered relay URLs when only username and password are set", () => {
+    process.env.TURN_USERNAME = "metered-user";
+    process.env.TURN_CREDENTIAL = "metered-pass";
+    const ice = buildIceResponse();
+    expect(ice.turnConfigured).toBe(true);
+    const urls = ice.iceServers.flatMap((server) =>
+      Array.isArray(server.urls) ? server.urls : [server.urls],
+    );
+    expect(urls.some((url) => url.includes("global.relay.metered.ca"))).toBe(true);
+  });
+
   it("mints coturn REST credentials and never returns TURN_SECRET", () => {
     const minted = mintTurnCredential("super-secret-provider-key", 1_700_000_000_000, 3600);
     expect(minted.username).toMatch(/^\d+:poker$/);
