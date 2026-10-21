@@ -3,24 +3,28 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 async function requestStream(video: boolean, audio: boolean) {
-  const attempts: MediaStreamConstraints[] = [
-    {
-      video: video ? { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } } : false,
-      audio: audio ? { echoCancellation: true, noiseSuppression: true } : false,
-    },
-    { video: video ? true : false, audio },
-    { video: false, audio: true },
-    { video: true, audio: false },
-  ];
+  const attempts: MediaStreamConstraints[] = [];
+  if (video && audio) {
+    attempts.push(
+      { video: { facingMode: "user" }, audio: { echoCancellation: true, noiseSuppression: true } },
+      { video: true, audio: true },
+    );
+  }
+  if (video) attempts.push({ video: true, audio: false });
+  if (audio) attempts.push({ video: false, audio: true });
   let lastError: unknown;
   for (const constraints of attempts) {
-    const wantsVideo = Boolean(constraints.video);
-    const wantsAudio = Boolean(constraints.audio);
-    if (video && !wantsVideo && audio && !wantsAudio) continue;
-    if (!video && wantsVideo) continue;
-    if (!audio && wantsAudio && video) continue;
     try {
-      return await navigator.mediaDevices.getUserMedia(constraints);
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      if (video && !stream.getVideoTracks().length && audio) {
+        try {
+          const cam = await navigator.mediaDevices.getUserMedia({ video: true });
+          cam.getVideoTracks().forEach((track) => stream.addTrack(track));
+        } catch {
+          /* keep microphone-only if the camera is blocked */
+        }
+      }
+      return stream;
     } catch (error) {
       lastError = error;
     }

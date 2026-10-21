@@ -57,6 +57,7 @@ export function RoomExperience({ code }: { code: string }) {
     joined,
   );
   const cameraBooted = useRef(false);
+  const cameraRetry = useRef(false);
 
   useEffect(() => {
     void fetch("/api/admin/status", { cache: "no-store" })
@@ -67,8 +68,17 @@ export function RoomExperience({ code }: { code: string }) {
 
   useEffect(() => {
     if (!joined) return;
-    if (!media.stream && !cameraBooted.current) {
+    if (!media.stream) {
+      if (cameraBooted.current) return;
       cameraBooted.current = true;
+      void media.start(true, true);
+      return;
+    }
+    if (
+      !cameraRetry.current &&
+      !media.stream.getVideoTracks().some((track) => track.readyState === "live")
+    ) {
+      cameraRetry.current = true;
       void media.start(true, true);
     }
   }, [joined, media.stream, media.start]);

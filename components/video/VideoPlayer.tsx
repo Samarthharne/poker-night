@@ -51,6 +51,11 @@ export function VideoPlayer({
     }
     video.muted = true;
     video.playsInline = true;
+    const markReady = () => {
+      if (video.videoWidth > 0) setReady(true);
+    };
+    video.addEventListener("loadeddata", markReady);
+    video.addEventListener("playing", markReady);
     void video.play().catch(() => undefined);
     if (audio) {
       if (muted) {
@@ -70,7 +75,11 @@ export function VideoPlayer({
       if (audio && !muted) void audio.play().catch(() => undefined);
     };
     window.addEventListener("pointerdown", unlock);
-    return () => window.removeEventListener("pointerdown", unlock);
+    return () => {
+      window.removeEventListener("pointerdown", unlock);
+      video.removeEventListener("loadeddata", markReady);
+      video.removeEventListener("playing", markReady);
+    };
   }, [active, muted, stream]);
 
   const showVideo = Boolean(active && stream && liveVideo && ready);
@@ -85,7 +94,7 @@ export function VideoPlayer({
         muted
         aria-label={title}
         onPlaying={() => {
-          if (liveVideo) setReady(true);
+          if (videoRef.current && videoRef.current.videoWidth > 0) setReady(true);
         }}
       />
       {!showVideo && fallback}

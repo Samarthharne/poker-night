@@ -3,42 +3,45 @@
 import { useEffect, useRef, useState } from "react";
 import type Peer from "peerjs";
 import type { MediaConnection } from "peerjs";
-import { rtcConfiguration } from "./ice";
+import { peerName, playerIdFromPeer } from "./peer-id";
 
-function peerName(code: string, playerId: string) {
-  const room = code.replace(/[^a-zA-Z0-9]/g, "").slice(0, 8);
-  return `p${room}${playerId.replace(/-/g, "")}`;
-}
-
-function playerIdFromPeer(name: string, peerIds: string[]) {
-  return (
-    peerIds.find((id) => name.endsWith(id.replace(/-/g, ""))) ??
-    name.replace(/^p[a-zA-Z0-9]{0,8}/, "")
-  );
-}
-
-function peerIce(): RTCConfiguration {
-  const ice = rtcConfiguration();
-  const iceServers: RTCIceServer[] = [
-    ...(ice.iceServers ?? []),
+const ICE: RTCConfiguration = {
+  iceServers: [
+    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
     {
       urls: ["turn:0.peerjs.com:3478", "turn:0.peerjs.com:3478?transport=tcp"],
       username: "peerjs",
       credential: "peerjsp",
     },
-  ];
-  return { ...ice, iceServers };
-}
+  ],
+};
+
+type CallEntry = {
+  call: MediaConnection;
+  started: number;
+  gotStream: boolean;
+};
 
 function pushTracks(call: MediaConnection, stream: MediaStream) {
   const pc = call.peerConnection;
-  if (!pc) return;
-  for (const sender of pc.getSenders()) {
-    const next = stream.getTracks().find((track) => track.kind === sender.track?.kind);
-    if (next && sender.track && next.id !== sender.track.id) {
-      void sender.replaceTrack(next);
+  if (!pc) return false;
+  const senders = pc.getSenders();
+  let attached = 0;
+  for (const track of stream.getTracks()) {
+    const sender = senders.find((item) => item.track?.kind === track.kind);
+    if (sender) {
+      if (!sender.track || sender.track.id !== track.id) void sender.replaceTrack(track);
+      attached += 1;
+    } else {
+      try {
+        pc.addTrack(track, stream);
+        attached += 1;
+      } catch {
+        /* transceiver already exists */
+      }
     }
   }
+  return attached > 0;
 }
 
 export function usePeerMedia(
@@ -52,11 +55,13 @@ export function usePeerMedia(
   const streamRef = useRef(localStream);
   const selfRef = useRef(selfId);
   const wantedRef = useRef(peerIds);
-  const callsRef = useRef(new Map<string, MediaConnection>());
-  const dialMissingRef = useRef<(force?: boolean) => void>(() => undefined);
+  const callsRef = useRef(new Map<string, CallEntry>());
+  const remotesRef = useRef(remoteStreams);
+  const dialMissingRef = useRef<() => void>(() => undefined);
   streamRef.current = localStream;
   selfRef.current = selfId;
   wantedRef.current = peerIds;
+  remotesRef.current = remoteStreams;
 
   useEffect(() => {
     if (!enabled || !code || !selfId) return;
@@ -66,11 +71,14 @@ export function usePeerMedia(
     calls.clear();
 
     function publish(peerId: string, stream: MediaStream) {
+      const entry = calls.get(peerId);
+      if (entry) entry.gotStream = true;
       setRemoteStreams((prev) => (prev[peerId] === stream ? prev : { ...prev, [peerId]: stream }));
     }
 
     function forget(peerId: string, call: MediaConnection) {
-      if (calls.get(peerId) !== call) return;
+      const entry = calls.get(peerId);
+      if (entry && entry.call !== call) return;
       calls.delete(peerId);
       setRemoteStreams((prev) => {
         if (!prev[peerId]) return prev;
@@ -82,14 +90,14 @@ export function usePeerMedia(
 
     function watch(peerId: string, call: MediaConnection) {
       const prev = calls.get(peerId);
-      if (prev && prev !== call) {
+      if (prev && prev.call !== call) {
         try {
-          prev.close();
+          prev.call.close();
         } catch {
           /* ignore */
         }
       }
-      calls.set(peerId, call);
+      calls.set(peerId, { call, started: Date.now(), gotStream: Boolean(remotesRef.current[peerId]) });
       call.on("stream", (stream) => {
         if (closed) return;
         if (stream.getTracks().some((track) => track.readyState !== "ended")) {
@@ -100,12 +108,21 @@ export function usePeerMedia(
       call.on("error", () => forget(peerId, call));
     }
 
-    function dial(targetId: string, force = false) {
+    function dial(targetId: string) {
       if (!peer?.open || closed || targetId === selfRef.current) return;
       const stream = streamRef.current;
       if (!stream) return;
-      if (calls.has(targetId)) return;
-      if (!force && (selfRef.current ?? "") >= targetId) return;
+      const entry = calls.get(targetId);
+      if (entry?.gotStream || remotesRef.current[targetId]) return;
+      if (entry && Date.now() - entry.started < 8000) return;
+      if (entry) {
+        try {
+          entry.call.close();
+        } catch {
+          /* retry a hung invite */
+        }
+        calls.delete(targetId);
+      }
       try {
         const call = peer.call(peerName(code, targetId), stream);
         if (call) watch(targetId, call);
@@ -114,9 +131,9 @@ export function usePeerMedia(
       }
     }
 
-    function dialMissing(force = false) {
+    function dialMissing() {
       for (const id of wantedRef.current) {
-        if (id) dial(id, force);
+        if (id) dial(id);
       }
     }
     dialMissingRef.current = dialMissing;
@@ -124,14 +141,17 @@ export function usePeerMedia(
     void import("peerjs").then(({ default: PeerCtor }) => {
       if (closed) return;
       peer = new PeerCtor(peerName(code, selfId), {
-        debug: 0,
+        host: "0.peerjs.com",
+        port: 443,
+        path: "/",
         secure: true,
-        config: peerIce(),
+        debug: 0,
+        config: ICE,
       });
       peer.on("call", (call) => {
         const from = playerIdFromPeer(call.peer, wantedRef.current);
         const existing = calls.get(from);
-        if (existing?.open) {
+        if (existing?.gotStream || remotesRef.current[from]) {
           try {
             call.close();
           } catch {
@@ -150,9 +170,9 @@ export function usePeerMedia(
       });
       peer.on("error", (error) => {
         const type = String((error as { type?: string }).type ?? error);
-        if (type.includes("peer-unavailable") || type.includes("network")) {
-          for (const [id, call] of calls) {
-            if (!call.open) forget(id, call);
+        if (type.includes("peer-unavailable") || type.includes("network") || type.includes("unavailable-id")) {
+          for (const [id, entry] of calls) {
+            if (!entry.gotStream) forget(id, entry.call);
           }
         }
       });
@@ -162,17 +182,17 @@ export function usePeerMedia(
       if (closed || !peer?.open) return;
       const stream = streamRef.current;
       if (stream) {
-        for (const call of calls.values()) pushTracks(call, stream);
+        for (const entry of calls.values()) pushTracks(entry.call, stream);
       }
-      dialMissing(true);
-    }, 5000);
+      dialMissing();
+    }, 3000);
 
     return () => {
       closed = true;
       clearInterval(retry);
-      for (const call of calls.values()) {
+      for (const entry of calls.values()) {
         try {
-          call.close();
+          entry.call.close();
         } catch {
           /* ignore */
         }
@@ -185,7 +205,7 @@ export function usePeerMedia(
 
   useEffect(() => {
     if (!localStream) return;
-    for (const call of callsRef.current.values()) pushTracks(call, localStream);
+    for (const entry of callsRef.current.values()) pushTracks(entry.call, localStream);
     dialMissingRef.current();
   }, [localStream]);
 
