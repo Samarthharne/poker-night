@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { toSnapshot } from "@/lib/poker/public-state";
-import { endGame, startGame } from "@/lib/poker/game-engine";
+import { endGame, markPlayerLeft, startGame } from "@/lib/poker/game-engine";
 import { isYourTurn } from "@/lib/poker/client-actions";
 import { testRoom } from "../helpers/room";
 
@@ -72,6 +72,13 @@ describe("public snapshot", () => {
       },
     ];
     expect(toSnapshot(room, viewer.id).rtcMessages?.map((item) => item.id)).toEqual(["dashed"]);
+  });
+
+  it("hides a player who left the waiting room", () => {
+    const room = testRoom();
+    markPlayerLeft(room, room.players[1]!.id);
+    const snapshot = toSnapshot(room, room.players[0]!.id);
+    expect(snapshot.players.map((player) => player.displayName)).toEqual(["Ava"]);
   });
 
   it("reports lobby after end game even if status lagged", () => {

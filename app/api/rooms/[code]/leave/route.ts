@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { playerLeaveHand } from "@/lib/poker/game-engine";
+import { markPlayerLeft } from "@/lib/poker/game-engine";
 import { loadRoomPlayer } from "@/lib/api/guard";
 import { saveRoomNow, snapshotFor } from "@/lib/store/rooms";
 
@@ -12,17 +12,10 @@ export async function POST(
   if ("error" in loaded) return loaded.error;
   const { room, player } = loaded;
 
-  playerLeaveHand(room, player.id);
-
-  if (room.status === "lobby" || room.status === "complete") {
-    room.players = room.players.filter((p) => p.id !== player.id);
-    if (player.isHost && room.players[0]) {
-      room.players[0].isHost = false;
-    }
-  } else {
-    player.isConnected = false;
-    player.cameraEnabled = false;
-    player.microphoneEnabled = false;
+  markPlayerLeft(room, player.id);
+  if (player.isHost) {
+    const next = room.players.find((item) => !item.removed);
+    if (next) next.isHost = false;
   }
 
   await saveRoomNow(room);

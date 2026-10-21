@@ -3,7 +3,7 @@ import { publicOrigin } from "@/lib/http/origin";
 import {
   endGame,
   pauseGame,
-  playerLeaveHand,
+  markPlayerLeft,
   resetToLobby,
   startGame,
 } from "@/lib/poker/game-engine";
@@ -108,9 +108,7 @@ export async function POST(
       case "kick": {
         const target = room.players.find((p) => p.id === body.playerId);
         if (!target) return jsonError("Player not found.");
-        playerLeaveHand(room, target.id);
-        target.removed = true;
-        target.isConnected = false;
+        markPlayerLeft(room, target.id);
         target.holeCards = undefined;
         break;
       }

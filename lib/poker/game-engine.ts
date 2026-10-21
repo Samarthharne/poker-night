@@ -474,6 +474,17 @@ function awardUncontested(room: Room, winner: Player) {
   for (const p of room.players) p.currentBet = 0;
 }
 
+export function markPlayerLeft(room: Room, playerId: string) {
+  playerLeaveHand(room, playerId);
+  const player = room.players.find((item) => item.id === playerId);
+  if (!player) return;
+  player.removed = true;
+  player.isConnected = false;
+  player.cameraEnabled = false;
+  player.microphoneEnabled = false;
+  player.lastSeenAt = Date.now();
+}
+
 export function playerLeaveHand(room: Room, playerId: string) {
   const player = room.players.find((p) => p.id === playerId);
   if (!player || !room.game) return;

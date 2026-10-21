@@ -167,7 +167,7 @@ function mergePlayers(preferred: Room["players"], other: Room["players"]) {
     const extra = alt.get(id);
     const present = presenceOf(main, extra);
     const base = main ?? extra;
-    if (!base || base.removed) continue;
+    if (!base || main?.removed || extra?.removed || base.removed) continue;
     const newerSignal =
       (extra?.rtcSignal?.at ?? 0) > (main?.rtcSignal?.at ?? 0) ? extra?.rtcSignal : main?.rtcSignal;
     merged.push({

@@ -88,6 +88,17 @@ describe("room snapshot merge", () => {
     expect(merged.rtcSignals?.map((item) => item.id).sort()).toEqual(["answer-b", "offer-a"]);
   });
 
+  it("does not bring a player back after they leave the table", () => {
+    const live = testRoom();
+    const stale = structuredClone(live);
+    live.players[1]!.removed = true;
+    live.players[1]!.isConnected = false;
+    live.updatedAt = Date.now();
+    stale.updatedAt = live.updatedAt - 2_000;
+    const merged = mergeRoomPair(live, stale);
+    expect(merged.players.filter((player) => !player.removed).map((player) => player.displayName)).toEqual(["Ava"]);
+  });
+
   it("keeps the newer seat camera offer across instances", () => {
     const left = testRoom();
     const right = structuredClone(left);

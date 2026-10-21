@@ -43,11 +43,15 @@ export async function POST(
   const bySession = findPlayerBySession(room, sessionId);
   const returning = byToken ?? bySession;
 
-  if (returning && !returning.removed) {
+  if (returning) {
+    if (room.closedAt || room.status === "closed") {
+      return NextResponse.json({ error: "This room is closed." }, { status: 403 });
+    }
+    returning.removed = false;
     returning.sessionId = sessionId;
     returning.isConnected = true;
     returning.lastSeenAt = Date.now();
-    if (body.displayName?.trim() && room.status === "lobby") {
+    if (body.displayName?.trim() && (room.status === "lobby" || !room.game)) {
       returning.displayName = body.displayName.trim().slice(0, 24);
     }
     if (typeof body.cameraEnabled === "boolean") {
@@ -78,7 +82,7 @@ export async function POST(
     return NextResponse.json({ error: "Enter a display name." }, { status: 400 });
   }
 
-  const taken = new Set(room.players.map((p) => p.seatNumber));
+  const taken = new Set(room.players.filter((p) => !p.removed).map((p) => p.seatNumber));
   let seat = 1;
   while (taken.has(seat) && seat <= room.maxPlayers) seat += 1;
 
