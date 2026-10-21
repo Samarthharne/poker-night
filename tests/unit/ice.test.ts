@@ -1,6 +1,11 @@
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { parseTurnUrls, rtcConfiguration, splitIceUrls } from "@/lib/video/ice";
-import { buildIceResponse, mintTurnCredential } from "@/lib/video/ice-server";
+import {
+  buildIceResponse,
+  buildIceResponseAsync,
+  meteredCredentialsUrl,
+  mintTurnCredential,
+} from "@/lib/video/ice-server";
 
 const keys = [
   "NEXT_PUBLIC_STUN_URLS",
@@ -9,10 +14,13 @@ const keys = [
   "TURN_CREDENTIAL",
   "TURN_SECRET",
   "TURN_TTL_SECONDS",
+  "METERED_API_KEY",
+  "METERED_DOMAIN",
 ];
 
 afterEach(() => {
   for (const key of keys) delete process.env[key];
+  vi.unstubAllGlobals();
 });
 
 describe("WebRTC ICE config", () => {
@@ -53,5 +61,28 @@ describe("WebRTC ICE config", () => {
     expect(ice.turnConfigured).toBe(true);
     expect(ice.iceServers.filter((server) => "username" in server)).toHaveLength(2);
     expect(JSON.stringify(ice)).not.toContain("super-secret-provider-key");
+  });
+
+  it("loads Metered ICE servers on the server and never returns the API key", async () => {
+    process.env.METERED_DOMAIN = "poker-night.metered.live";
+    process.env.METERED_API_KEY = "test-metered-secret";
+    expect(meteredCredentialsUrl()).toContain("apiKey=test-metered-secret");
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => [
+        { urls: "stun:stun.relay.metered.ca:80" },
+        {
+          urls: "turn:standard.relay.metered.ca:80",
+          username: "temp-user",
+          credential: "temp-pass",
+        },
+      ],
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const ice = await buildIceResponseAsync();
+    expect(ice.turnConfigured).toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(JSON.stringify(ice)).not.toContain("test-metered-secret");
+    vi.unstubAllGlobals();
   });
 });

@@ -97,14 +97,23 @@ SDP and ICE never go into the public poker snapshot. `cameraEnabled` / `micropho
 
 A reachable TURN server is a **deployment prerequisite**. Frontend changes cannot provision a relay. Public STUN is enough for some same-LAN calls; it is not enough when friends are on different Wi-Fi or 4G/5G.
 
-Provision a real TURN service (self-hosted coturn, Twilio Network Traversal, Metered, Cloudflare, etc.), then set Netlify **Site configuration → Environment variables** and **redeploy** so functions pick them up.
+This project is set up for **Metered TURN**. The browser never calls Metered. The server fetches ICE servers from Metered, then returns only `urls` / `username` / `credential` to room members.
+
+| Variable | Purpose |
+| --- | --- |
+| `METERED_DOMAIN` | Metered app host, e.g. `poker-night.metered.live` |
+| `METERED_API_KEY` | Metered TURN REST API key. **Server only. Never `NEXT_PUBLIC_`.** |
+
+Set both on Netlify → Site configuration → Environment variables, then **redeploy**. Locally they go in `.env.local`.
+
+If Metered is not used, you can instead set a generic TURN service:
 
 | Variable | Purpose |
 | --- | --- |
 | `NEXT_PUBLIC_STUN_URLS` | Optional comma/space-separated STUN URLs |
-| `TURN_URLS` | Server-only TURN URLs. Include UDP and, if the provider supports them, TCP and TLS. Example: `turn:turn.example:3478,turn:turn.example:3478?transport=tcp,turns:turn.example:443?transport=tcp` |
-| `TURN_SECRET` | coturn REST (`use-auth-secret`) shared secret. Server mints `expiry:poker` + HMAC-SHA1. **Never** use `NEXT_PUBLIC_` |
-| `TURN_USERNAME` / `TURN_CREDENTIAL` | Static TURN login if the provider does not use coturn REST (do not set these together with `TURN_SECRET` unless the provider says to) |
+| `TURN_URLS` | Server-only TURN URLs. Example: `turn:turn.example:3478,turn:turn.example:3478?transport=tcp,turns:turn.example:443?transport=tcp` |
+| `TURN_SECRET` | coturn REST shared secret. **Never** use `NEXT_PUBLIC_` |
+| `TURN_USERNAME` / `TURN_CREDENTIAL` | Static TURN login if the provider does not use coturn REST |
 | `TURN_TTL_SECONDS` | Credential lifetime (default 21600) |
 
 `turns:` on port 443 is TLS TURN. `turn:` plus `?transport=tcp` is TCP TURN. Do not assume port 443 is TLS unless the URL scheme is `turns:`.
