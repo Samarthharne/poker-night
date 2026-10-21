@@ -27,11 +27,13 @@ export function PokerTable({
   snapshot,
   localStream,
   remoteStreams,
+  speakerMuted,
   onSelectPlayer,
 }: {
   snapshot: RoomSnapshot;
   localStream?: MediaStream | null;
   remoteStreams?: Record<string, MediaStream>;
+  speakerMuted?: boolean;
   onSelectPlayer?: (id: string) => void;
 }) {
   const { sb, bb } = blindsFor(snapshot);
@@ -67,6 +69,7 @@ export function PokerTable({
           }
           localStream={localStream}
           remoteStreams={remoteStreams}
+          speakerMuted={speakerMuted}
           showCardsFor={winnerIds}
           onSelectPlayer={onSelectPlayer}
         />

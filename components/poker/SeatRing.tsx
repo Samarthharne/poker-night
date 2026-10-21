@@ -25,6 +25,7 @@ export function SeatRing({
   onSelectPlayer,
   onKick,
   canKick,
+  speakerMuted,
 }: {
   maxPlayers: number;
   players: PublicPlayer[];
@@ -39,6 +40,7 @@ export function SeatRing({
   onSelectPlayer?: (id: string) => void;
   onKick?: (playerId: string) => void;
   canKick?: boolean;
+  speakerMuted?: boolean;
 }) {
   const seats = Math.max(maxPlayers, 2);
   const selfSeat = players.find((player) => player.id === youId)?.seatNumber ?? 1;
@@ -68,6 +70,7 @@ export function SeatRing({
                   remoteStream={remoteStreams?.[player.id] ?? null}
                   showCards={player.id === youId || Boolean(showCardsFor?.has(player.id))}
                   isYou={player.id === youId}
+                  speakerMuted={speakerMuted}
                   onExpand={() => onSelectPlayer?.(player.id)}
                 />
                 {canKick && onKick && !player.isHost && player.id !== youId && (

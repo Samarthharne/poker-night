@@ -9,12 +9,14 @@ export function Lobby({
   localStream,
   remoteStreams,
   localId,
+  speakerMuted,
 }: {
   snapshot: RoomSnapshot;
   onUpdate?: (s: RoomSnapshot) => void;
   localStream: MediaStream | null;
   remoteStreams?: Record<string, MediaStream>;
   localId?: string;
+  speakerMuted?: boolean;
   isAdmin?: boolean;
   hostCode?: string;
 }) {
@@ -57,6 +59,7 @@ export function Lobby({
                 localStream={player.id === localId ? localStream : null}
                 remoteStream={remoteStreams?.[player.id] ?? null}
                 isYou={player.id === localId}
+                speakerMuted={speakerMuted}
               />
             </div>
           );

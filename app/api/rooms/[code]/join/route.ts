@@ -57,10 +57,6 @@ export async function POST(
       returning.microphoneEnabled = body.microphoneEnabled;
     }
     heartbeat(room, returning);
-    if (!room.players.some((p) => p.isHost && !p.removed)) {
-      const first = room.players.find((p) => !p.removed);
-      if (first) first.isHost = true;
-    }
     await saveRoomNow(room);
     return seatCookie(
       NextResponse.json({
@@ -95,7 +91,7 @@ export async function POST(
     chipBalance: room.startingChips,
     currentBet: 0,
     totalBetThisHand: 0,
-    isHost: room.players.filter((p) => !p.removed).length === 0,
+    isHost: false,
     removed: false,
     isConnected: true,
     lastSeenAt: Date.now(),
@@ -108,10 +104,6 @@ export async function POST(
     contributedThisHand: 0,
   };
   room.players.push(player);
-  if (!room.players.some((p) => p.isHost && !p.removed)) {
-    const first = room.players.find((p) => !p.removed);
-    if (first) first.isHost = true;
-  }
   await saveRoomNow(room);
 
   return seatCookie(

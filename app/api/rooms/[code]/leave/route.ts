@@ -17,8 +17,7 @@ export async function POST(
   if (room.status === "lobby" || room.status === "complete") {
     room.players = room.players.filter((p) => p.id !== player.id);
     if (player.isHost && room.players[0]) {
-      room.players[0].isHost = true;
-      room.hostId = room.players[0].id;
+      room.players[0].isHost = false;
     }
   } else {
     player.isConnected = false;

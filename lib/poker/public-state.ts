@@ -75,7 +75,7 @@ function publicPlayer(
     chipBalance: player.chipBalance,
     currentBet: player.currentBet,
     totalBetThisHand: player.totalBetThisHand,
-    isHost: player.isHost,
+    isHost: false,
     isConnected: player.isConnected,
     lastSeenAt: player.lastSeenAt,
     cameraEnabled: player.cameraEnabled,

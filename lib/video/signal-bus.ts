@@ -54,13 +54,11 @@ export function persistSignal(room: Room, signal: RtcSignal) {
 export function takePersistedSignals(room: Room, playerId: string) {
   const now = Date.now();
   const all = (room.rtcSignals ?? []).filter((item) => now - (item.at ?? now) < 20_000);
-  const mine = all.filter((item) => item.to === playerId);
-  const rest = all.filter((item) => item.to !== playerId);
-  if (mine.length || rest.length !== (room.rtcSignals ?? []).length) {
-    room.rtcSignals = rest;
+  if (all.length !== (room.rtcSignals ?? []).length) {
+    room.rtcSignals = all;
     saveRoom(room);
   }
-  return mine;
+  return all.filter((item) => item.to === playerId);
 }
 
 export function subscribeSignals(roomId: string, playerId: string, listener: Waiter) {

@@ -2,18 +2,10 @@
 
 import { useEffect, useRef, useState } from "react";
 import { getRoomToken } from "@/lib/client/session";
+import { rtcConfiguration } from "./ice";
 import { onVideoSignal } from "./signal-client";
 
 type Description = { type: RTCSdpType; sdp?: string };
-
-const ICE: RTCConfiguration = {
-  iceServers: [
-    { urls: "stun:stun.l.google.com:19302" },
-    { urls: "stun:stun1.l.google.com:19302" },
-    { urls: "stun:stun.cloudflare.com:3478" },
-  ],
-  iceCandidatePoolSize: 8,
-};
 
 type PeerSlot = {
   pc: RTCPeerConnection;
@@ -32,6 +24,7 @@ export function usePeerMedia(
   const slots = useRef(new Map<string, PeerSlot>());
   const pendingIce = useRef(new Map<string, RTCIceCandidateInit[]>());
   const remoteMedia = useRef(new Map<string, MediaStream>());
+  const seen = useRef(new Set<string>());
   const streamRef = useRef(localStream);
   const selfRef = useRef(selfId);
   streamRef.current = localStream;
@@ -59,15 +52,23 @@ export function usePeerMedia(
       return (selfRef.current ?? "") < peerId;
     }
 
+    function signalKey(signal: { from: string; description?: Description; candidate?: RTCIceCandidateInit | null }) {
+      return [
+        signal.from,
+        signal.description?.type ?? "",
+        signal.description?.sdp?.slice(0, 48) ?? "",
+        signal.candidate?.candidate ?? "",
+      ].join("|");
+    }
+
     function attachLocal(pc: RTCPeerConnection) {
       const stream = streamRef.current;
-      if (!stream) return;
-      for (const track of stream.getTracks()) {
-        const sender = pc.getSenders().find((item) => item.track?.kind === track.kind);
-        if (sender) {
-          if (sender.track !== track) void sender.replaceTrack(track).catch(() => undefined);
-        } else {
-          pc.addTrack(track, stream);
+      for (const transceiver of pc.getTransceivers()) {
+        const kind = transceiver.receiver.track?.kind;
+        if (kind !== "audio" && kind !== "video") continue;
+        const track = stream?.getTracks().find((item) => item.kind === kind) ?? null;
+        if (transceiver.sender.track !== track) {
+          void transceiver.sender.replaceTrack(track).catch(() => undefined);
         }
       }
     }
@@ -85,7 +86,7 @@ export function usePeerMedia(
       }
       if (!stream.getTracks().includes(track)) stream.addTrack(track);
       const next = stream;
-      setRemoteStreams((prev) => (prev[peerId] === next ? { ...prev } : { ...prev, [peerId]: next }));
+      setRemoteStreams((prev) => ({ ...prev, [peerId]: next }));
       track.onunmute = () => {
         setRemoteStreams((prev) => ({ ...prev, [peerId]: next }));
       };
@@ -97,7 +98,9 @@ export function usePeerMedia(
         attachLocal(existing.pc);
         return existing;
       }
-      const pc = new RTCPeerConnection(ICE);
+      const pc = new RTCPeerConnection(rtcConfiguration());
+      pc.addTransceiver("audio", { direction: "sendrecv" });
+      pc.addTransceiver("video", { direction: "sendrecv" });
       const slot: PeerSlot = { pc, makingOffer: false, ignoreOffer: false };
       slots.current.set(peerId, slot);
       pc.onicecandidate = (event) => {
@@ -128,8 +131,12 @@ export function usePeerMedia(
         })();
       };
       pc.oniceconnectionstatechange = () => {
-        if (pc.iceConnectionState === "failed") {
-          pc.restartIce();
+        if (pc.iceConnectionState === "failed" || pc.iceConnectionState === "disconnected") {
+          try {
+            pc.restartIce();
+          } catch {
+            /* ignore */
+          }
         }
       };
       attachLocal(pc);
@@ -138,6 +145,12 @@ export function usePeerMedia(
 
     async function take(signal: { from: string; description?: Description; candidate?: RTCIceCandidateInit | null }) {
       if (!wanted.has(signal.from) || signal.from === selfRef.current) return;
+      const key = signalKey(signal);
+      if (seen.current.has(key)) return;
+      seen.current.add(key);
+      if (seen.current.size > 400) {
+        seen.current = new Set([...seen.current].slice(-200));
+      }
       const slot = ensure(signal.from);
       const pc = slot.pc;
       try {
@@ -175,7 +188,7 @@ export function usePeerMedia(
           }
         }
       } catch {
-        /* duplicate or stale signal */
+        seen.current.delete(key);
       }
     }
 
@@ -199,7 +212,8 @@ export function usePeerMedia(
 
     async function drain() {
       const token = getRoomToken(code);
-      const res = await fetch(`/api/rooms/${encodeURIComponent(code)}/signals?poll=1`, {
+      const qs = token ? `?poll=1&token=${encodeURIComponent(token)}` : "?poll=1";
+      const res = await fetch(`/api/rooms/${encodeURIComponent(code)}/signals${qs}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
         cache: "no-store",
       });
@@ -215,13 +229,7 @@ export function usePeerMedia(
     void drain();
     const retry = setInterval(() => {
       void drain().catch(() => undefined);
-      for (const peerId of wanted) {
-        const slot = slots.current.get(peerId);
-        if (!slot) continue;
-        const state = slot.pc.iceConnectionState;
-        if (state === "failed" || state === "disconnected") slot.pc.restartIce();
-      }
-    }, 800);
+    }, 700);
 
     return () => {
       closed = true;
@@ -233,12 +241,13 @@ export function usePeerMedia(
   useEffect(() => {
     if (!localStream) return;
     for (const slot of slots.current.values()) {
-      for (const track of localStream.getTracks()) {
-        const sender = slot.pc.getSenders().find((item) => item.track?.kind === track.kind);
-        if (sender) {
-          if (sender.track !== track) void sender.replaceTrack(track).catch(() => undefined);
-        } else {
-          slot.pc.addTrack(track, localStream);
+      const pc = slot.pc;
+      for (const transceiver of pc.getTransceivers()) {
+        const kind = transceiver.receiver.track?.kind;
+        if (kind !== "audio" && kind !== "video") continue;
+        const track = localStream.getTracks().find((item) => item.kind === kind) ?? null;
+        if (transceiver.sender.track !== track) {
+          void transceiver.sender.replaceTrack(track).catch(() => undefined);
         }
       }
     }

@@ -198,7 +198,6 @@ export function RoomExperience({ code }: { code: string }) {
   }
 
   const you = snapshot.you;
-  const isHost = Boolean(you?.isHost);
   const complete = snapshot.status === "complete" || snapshot.game?.phase === "complete";
 
   return (
@@ -241,9 +240,39 @@ export function RoomExperience({ code }: { code: string }) {
             localStream={media.stream}
             remoteStreams={remoteStreams}
             localId={you?.id}
+            speakerMuted={media.speakerMuted}
             isAdmin={isAdmin}
             hostCode={code}
           />
+          <div className="relative z-40 flex shrink-0 justify-center gap-2 px-3 py-2">
+            <IconToggle
+              on={media.cameraEnabled}
+              onClick={async () => {
+                const next = await media.toggleCamera();
+                void sendMedia(code, { cameraEnabled: next });
+              }}
+              iconOn={<Camera className="h-4 w-4" />}
+              iconOff={<CameraOff className="h-4 w-4" />}
+              label="Camera"
+            />
+            <IconToggle
+              on={media.microphoneEnabled}
+              onClick={() => {
+                const next = media.toggleMic();
+                void sendMedia(code, { microphoneEnabled: next });
+              }}
+              iconOn={<Mic className="h-4 w-4" />}
+              iconOff={<MicOff className="h-4 w-4" />}
+              label="Mic"
+            />
+            <IconToggle
+              on={!media.speakerMuted}
+              onClick={() => media.setSpeakerMuted(!media.speakerMuted)}
+              iconOn={<Volume2 className="h-4 w-4" />}
+              iconOff={<VolumeX className="h-4 w-4" />}
+              label="Speaker"
+            />
+          </div>
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -253,7 +282,12 @@ export function RoomExperience({ code }: { code: string }) {
                 ? "Game paused"
                 : snapshot.game?.lastAction}
             </p>
-            <PokerTable snapshot={snapshot} localStream={media.stream} remoteStreams={remoteStreams} />
+            <PokerTable
+              snapshot={snapshot}
+              localStream={media.stream}
+              remoteStreams={remoteStreams}
+              speakerMuted={media.speakerMuted}
+            />
             <div className="relative z-40 flex shrink-0 justify-center gap-2 px-3 py-1">
               <IconToggle
                 on={media.cameraEnabled}
@@ -310,7 +344,7 @@ export function RoomExperience({ code }: { code: string }) {
               <ChatPanel snapshot={snapshot} onUpdate={setSnapshot} embedded />
             )}
             {sidebar === "players" && (
-              <PlayersList snapshot={snapshot} isHost={isHost} onUpdate={setSnapshot} />
+              <PlayersList snapshot={snapshot} isHost={isAdmin} onUpdate={setSnapshot} />
             )}
             {sidebar === "game" && <GameInfo snapshot={snapshot} />}
           </aside>
@@ -332,7 +366,7 @@ export function RoomExperience({ code }: { code: string }) {
               <X />
             </button>
           </div>
-          <PlayersList snapshot={snapshot} isHost={isHost} onUpdate={setSnapshot} />
+          <PlayersList snapshot={snapshot} isHost={isAdmin} onUpdate={setSnapshot} />
         </Sheet>
       )}
       {sheet === "invite" && (
@@ -460,7 +494,7 @@ function PlayersList({
         <div key={p.id} className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
           <div>
             <p className="text-sm font-medium">
-              {p.displayName} {p.isHost ? "· Host" : ""}
+              {p.displayName} {p.id === snapshot.you?.id ? "· You" : ""}
             </p>
             <p className="text-xs text-white/50">
               🪙 {formatChips(p.chipBalance)} · {p.isConnected ? "Online" : "Away"} ·{" "}

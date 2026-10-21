@@ -18,6 +18,7 @@ export function PlayerSeat({
   remoteStream,
   showCards,
   isYou,
+  speakerMuted,
   onExpand,
 }: {
   player: PublicPlayer;
@@ -31,6 +32,7 @@ export function PlayerSeat({
   remoteStream?: MediaStream | null;
   showCards?: boolean;
   isYou?: boolean;
+  speakerMuted?: boolean;
   onExpand?: () => void;
 }) {
   const reconnecting = !player.isConnected;
@@ -65,7 +67,7 @@ export function PlayerSeat({
         <VideoPlayer
           stream={stream ?? null}
           enabled={liveVideo}
-          muted={Boolean(isYou)}
+          muted={Boolean(isYou) || Boolean(speakerMuted)}
           mirror={Boolean(isYou)}
           label={player.displayName}
         />
@@ -102,7 +104,7 @@ export function PlayerSeat({
       <div className={cn("px-2 py-1.5", compact && "py-1")}>
         <div className="flex items-center justify-between gap-1">
           <p className="truncate text-xs font-semibold sm:text-sm">{player.displayName}</p>
-          {player.isHost && <span className="text-[10px] uppercase text-gold">Host</span>}
+          {isYou && <span className="text-[10px] uppercase text-gold">You</span>}
         </div>
         <p className="text-sm font-semibold text-gold-bright">🪙 {formatChips(player.chipBalance)}</p>
         {player.currentBet > 0 && (
