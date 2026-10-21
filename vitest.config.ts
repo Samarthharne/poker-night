@@ -13,7 +13,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary"],
-      include: ["lib/poker/**/*.ts", "lib/admin/**/*.ts"],
+      include: ["lib/poker/**/*.ts", "lib/store/durable.ts", "lib/video/ice.ts"],
       thresholds: {
         statements: 70,
         branches: 55,
