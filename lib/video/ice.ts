@@ -15,6 +15,11 @@ export function rtcConfiguration(): RTCConfiguration {
   const username = process.env.NEXT_PUBLIC_TURN_USERNAME ?? process.env.TURN_USERNAME ?? "";
   const credential = process.env.NEXT_PUBLIC_TURN_CREDENTIAL ?? process.env.TURN_CREDENTIAL ?? "";
 
+  iceServers.push({
+    urls: ["turn:0.peerjs.com:3478", "turn:0.peerjs.com:3478?transport=tcp"],
+    username: "peerjs",
+    credential: "peerjsp",
+  });
   if (turnUrls.length && username && credential) {
     iceServers.push({ urls: turnUrls, username, credential });
   } else {

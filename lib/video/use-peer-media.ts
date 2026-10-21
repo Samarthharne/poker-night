@@ -1,47 +1,37 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type Peer from "peerjs";
-import type { MediaConnection } from "peerjs";
-import { peerName, playerIdFromPeer } from "./peer-id";
+import { fetchRtcSignals, sendRtcSignal } from "@/lib/client/api";
+import { rtcConfiguration } from "./ice";
+import { onVideoSignal } from "./signal-client";
+import type { RtcSignal } from "./signal-bus";
 
-const ICE: RTCConfiguration = {
-  iceServers: [
-    { urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"] },
-    {
-      urls: ["turn:0.peerjs.com:3478", "turn:0.peerjs.com:3478?transport=tcp"],
-      username: "peerjs",
-      credential: "peerjsp",
-    },
-  ],
-};
+function signalKey(signal: RtcSignal) {
+  return [
+    signal.from,
+    signal.to,
+    signal.description?.type ?? "",
+    signal.description?.sdp?.slice(0, 80) ?? "",
+    (signal.candidate as { candidate?: string } | null)?.candidate ?? "",
+  ].join("|");
+}
 
-type CallEntry = {
-  call: MediaConnection;
-  started: number;
-  gotStream: boolean;
-};
-
-function pushTracks(call: MediaConnection, stream: MediaStream) {
-  const pc = call.peerConnection;
-  if (!pc) return false;
-  const senders = pc.getSenders();
-  let attached = 0;
+function attachLocal(pc: RTCPeerConnection, stream: MediaStream | null) {
+  if (!stream) {
+    if (pc.getTransceivers().length === 0) {
+      pc.addTransceiver("audio", { direction: "sendrecv" });
+      pc.addTransceiver("video", { direction: "sendrecv" });
+    }
+    return;
+  }
   for (const track of stream.getTracks()) {
-    const sender = senders.find((item) => item.track?.kind === track.kind);
+    const sender = pc.getSenders().find((item) => item.track?.kind === track.kind);
     if (sender) {
-      if (!sender.track || sender.track.id !== track.id) void sender.replaceTrack(track);
-      attached += 1;
+      if (sender.track?.id !== track.id) void sender.replaceTrack(track);
     } else {
-      try {
-        pc.addTrack(track, stream);
-        attached += 1;
-      } catch {
-        /* transceiver already exists */
-      }
+      pc.addTrack(track, stream);
     }
   }
-  return attached > 0;
 }
 
 export function usePeerMedia(
@@ -55,31 +45,59 @@ export function usePeerMedia(
   const streamRef = useRef(localStream);
   const selfRef = useRef(selfId);
   const wantedRef = useRef(peerIds);
-  const callsRef = useRef(new Map<string, CallEntry>());
-  const remotesRef = useRef(remoteStreams);
-  const dialMissingRef = useRef<() => void>(() => undefined);
+  const pcsRef = useRef(new Map<string, RTCPeerConnection>());
+  const iceBufRef = useRef(new Map<string, RTCIceCandidateInit[]>());
+  const seenRef = useRef(new Set<string>());
+  const offeringRef = useRef(new Set<string>());
+  const lastOfferRef = useRef(new Map<string, number>());
   streamRef.current = localStream;
   selfRef.current = selfId;
   wantedRef.current = peerIds;
-  remotesRef.current = remoteStreams;
 
   useEffect(() => {
     if (!enabled || !code || !selfId) return;
     let closed = false;
-    let peer: Peer | null = null;
-    const calls = callsRef.current;
-    calls.clear();
+    const pcs = pcsRef.current;
+    pcs.clear();
+    iceBufRef.current.clear();
+    seenRef.current.clear();
+    offeringRef.current.clear();
+    lastOfferRef.current.clear();
 
-    function publish(peerId: string, stream: MediaStream) {
-      const entry = calls.get(peerId);
-      if (entry) entry.gotStream = true;
-      setRemoteStreams((prev) => (prev[peerId] === stream ? prev : { ...prev, [peerId]: stream }));
+    function publish(peerId: string, track: MediaStreamTrack, streams: readonly MediaStream[]) {
+      setRemoteStreams((prev) => {
+        const incoming = streams[0];
+        const tracks = [
+          ...(incoming ? incoming.getTracks() : prev[peerId]?.getTracks() ?? []),
+          track,
+        ];
+        const unique = [...new Map(tracks.map((item) => [item.id, item])).values()].filter(
+          (item) => item.readyState !== "ended",
+        );
+        const next = new MediaStream(unique);
+        const current = prev[peerId];
+        if (
+          current &&
+          current.getTracks().length === next.getTracks().length &&
+          current.getTracks().every((item) => next.getTracks().some((other) => other.id === item.id))
+        ) {
+          return prev;
+        }
+        return { ...prev, [peerId]: next };
+      });
     }
 
-    function forget(peerId: string, call: MediaConnection) {
-      const entry = calls.get(peerId);
-      if (entry && entry.call !== call) return;
-      calls.delete(peerId);
+    function drop(peerId: string) {
+      const pc = pcs.get(peerId);
+      if (pc) {
+        try {
+          pc.close();
+        } catch {
+          /* ignore */
+        }
+        pcs.delete(peerId);
+      }
+      iceBufRef.current.delete(peerId);
       setRemoteStreams((prev) => {
         if (!prev[peerId]) return prev;
         const next = { ...prev };
@@ -88,125 +106,176 @@ export function usePeerMedia(
       });
     }
 
-    function watch(peerId: string, call: MediaConnection) {
-      const prev = calls.get(peerId);
-      if (prev && prev.call !== call) {
+    async function flushIce(peerId: string, pc: RTCPeerConnection) {
+      const queued = iceBufRef.current.get(peerId) ?? [];
+      iceBufRef.current.set(peerId, []);
+      for (const candidate of queued) {
         try {
-          prev.call.close();
+          await pc.addIceCandidate(candidate);
         } catch {
-          /* ignore */
+          /* remote description not ready */
         }
       }
-      calls.set(peerId, { call, started: Date.now(), gotStream: Boolean(remotesRef.current[peerId]) });
-      call.on("stream", (stream) => {
-        if (closed) return;
-        if (stream.getTracks().some((track) => track.readyState !== "ended")) {
-          publish(peerId, stream);
-        }
-      });
-      call.on("close", () => forget(peerId, call));
-      call.on("error", () => forget(peerId, call));
     }
 
-    function dial(targetId: string) {
-      if (!peer?.open || closed || targetId === selfRef.current) return;
-      const stream = streamRef.current;
-      if (!stream) return;
-      const entry = calls.get(targetId);
-      if (entry?.gotStream || remotesRef.current[targetId]) return;
-      if (entry && Date.now() - entry.started < 8000) return;
-      if (entry) {
-        try {
-          entry.call.close();
-        } catch {
-          /* retry a hung invite */
-        }
-        calls.delete(targetId);
-      }
+    async function negotiate(peerId: string) {
+      const pc = pcs.get(peerId);
+      const me = selfRef.current ?? "";
+      if (!pc || closed || !me || me >= peerId) return;
+      if (offeringRef.current.has(peerId)) return;
+      if (pc.signalingState !== "stable") return;
+      const now = Date.now();
+      if (now - (lastOfferRef.current.get(peerId) ?? 0) < 4000) return;
+      lastOfferRef.current.set(peerId, now);
+      offeringRef.current.add(peerId);
       try {
-        const call = peer.call(peerName(code, targetId), stream);
-        if (call) watch(targetId, call);
+        attachLocal(pc, streamRef.current);
+        const offer = await pc.createOffer({ iceRestart: pc.connectionState === "failed" });
+        if (closed || pc.signalingState !== "stable") return;
+        await pc.setLocalDescription(offer);
+        const local = pc.localDescription;
+        if (!local) return;
+        await sendRtcSignal(code, {
+          to: peerId,
+          description: { type: local.type, sdp: local.sdp ?? undefined },
+        });
       } catch {
-        /* other player has not opened a PeerJS id yet */
+        /* other player is not ready yet */
+      } finally {
+        offeringRef.current.delete(peerId);
       }
     }
 
-    function dialMissing() {
-      for (const id of wantedRef.current) {
-        if (id) dial(id);
-      }
+    function ensurePc(peerId: string) {
+      const existing = pcs.get(peerId);
+      if (existing && existing.connectionState !== "closed") return existing;
+      const pc = new RTCPeerConnection(rtcConfiguration());
+      pcs.set(peerId, pc);
+      attachLocal(pc, streamRef.current);
+      pc.onicecandidate = (event) => {
+        if (!event.candidate || closed) return;
+        void sendRtcSignal(code, { to: peerId, candidate: event.candidate.toJSON() });
+      };
+      pc.ontrack = (event) => {
+        if (!closed) publish(peerId, event.track, event.streams);
+      };
+      pc.onconnectionstatechange = () => {
+        if (closed) return;
+        if (pc.connectionState === "failed") void negotiate(peerId);
+      };
+      pc.onnegotiationneeded = () => {
+        if (!closed) void negotiate(peerId);
+      };
+      return pc;
     }
-    dialMissingRef.current = dialMissing;
 
-    void import("peerjs").then(({ default: PeerCtor }) => {
+    async function apply(signal: RtcSignal) {
       if (closed) return;
-      peer = new PeerCtor(peerName(code, selfId), {
-        host: "0.peerjs.com",
-        port: 443,
-        path: "/",
-        secure: true,
-        debug: 0,
-        config: ICE,
-      });
-      peer.on("call", (call) => {
-        const from = playerIdFromPeer(call.peer, wantedRef.current);
-        const existing = calls.get(from);
-        if (existing?.gotStream || remotesRef.current[from]) {
-          try {
-            call.close();
-          } catch {
-            /* already connected */
-          }
-          return;
-        }
-        call.answer(streamRef.current ?? undefined);
-        watch(from, call);
-      });
-      peer.on("open", () => {
-        if (!closed) dialMissing();
-      });
-      peer.on("disconnected", () => {
-        if (!closed) peer?.reconnect();
-      });
-      peer.on("error", (error) => {
-        const type = String((error as { type?: string }).type ?? error);
-        if (type.includes("peer-unavailable") || type.includes("network") || type.includes("unavailable-id")) {
-          for (const [id, entry] of calls) {
-            if (!entry.gotStream) forget(id, entry.call);
-          }
-        }
-      });
-    });
-
-    const retry = setInterval(() => {
-      if (closed || !peer?.open) return;
-      const stream = streamRef.current;
-      if (stream) {
-        for (const entry of calls.values()) pushTracks(entry.call, stream);
+      const me = selfRef.current;
+      if (!me || signal.from === me || (signal.to && signal.to !== me)) return;
+      const key = signalKey(signal);
+      if (seenRef.current.has(key)) return;
+      seenRef.current.add(key);
+      if (seenRef.current.size > 300) {
+        seenRef.current = new Set([...seenRef.current].slice(-150));
       }
-      dialMissing();
-    }, 3000);
+      const pc = ensurePc(signal.from);
+      try {
+        if (signal.description?.type === "offer" && signal.description.sdp) {
+          if (pc.signalingState !== "stable" && (selfRef.current ?? "") < signal.from) return;
+          if (pc.signalingState !== "stable") {
+            try {
+              await pc.setLocalDescription({ type: "rollback" });
+            } catch {
+              drop(signal.from);
+              ensurePc(signal.from);
+            }
+          }
+          const live = pcs.get(signal.from) ?? pc;
+          await live.setRemoteDescription({
+            type: "offer",
+            sdp: signal.description.sdp,
+          });
+          attachLocal(live, streamRef.current);
+          const answer = await live.createAnswer();
+          await live.setLocalDescription(answer);
+          const local = live.localDescription;
+          if (local) {
+            await sendRtcSignal(code, {
+              to: signal.from,
+              description: { type: local.type, sdp: local.sdp ?? undefined },
+            });
+          }
+          await flushIce(signal.from, live);
+        } else if (signal.description?.type === "answer" && signal.description.sdp) {
+          if (pc.signalingState === "have-local-offer") {
+            await pc.setRemoteDescription({
+              type: "answer",
+              sdp: signal.description.sdp,
+            });
+            await flushIce(signal.from, pc);
+          }
+        } else if (signal.candidate) {
+          const candidate = signal.candidate as RTCIceCandidateInit;
+          if (!pc.remoteDescription) {
+            const queued = iceBufRef.current.get(signal.from) ?? [];
+            queued.push(candidate);
+            iceBufRef.current.set(signal.from, queued);
+          } else {
+            try {
+              await pc.addIceCandidate(candidate);
+            } catch {
+              /* stale candidate */
+            }
+          }
+        }
+      } catch {
+        /* glare or stale description */
+      }
+    }
+
+    async function pump() {
+      if (closed) return;
+      const wanted = wantedRef.current.filter((id) => id && id !== selfRef.current);
+      for (const id of [...pcs.keys()]) {
+        if (!wanted.includes(id)) drop(id);
+      }
+      for (const id of wanted) ensurePc(id);
+      try {
+        const signals = (await fetchRtcSignals(code)) as RtcSignal[];
+        for (const signal of signals) await apply(signal);
+      } catch {
+        /* keep the peer connections */
+      }
+      for (const id of wanted) {
+        const pc = pcs.get(id);
+        if (!pc) continue;
+        attachLocal(pc, streamRef.current);
+        if (pc.connectionState === "connected" || pc.connectionState === "connecting") continue;
+        void negotiate(id);
+      }
+    }
+
+    const unsub = onVideoSignal((signal) => {
+      void apply(signal as RtcSignal);
+    });
+    const poll = setInterval(() => {
+      void pump();
+    }, 1000);
+    void pump();
 
     return () => {
       closed = true;
-      clearInterval(retry);
-      for (const entry of calls.values()) {
-        try {
-          entry.call.close();
-        } catch {
-          /* ignore */
-        }
-      }
-      calls.clear();
-      peer?.destroy();
+      unsub();
+      clearInterval(poll);
+      for (const id of [...pcs.keys()]) drop(id);
       setRemoteStreams({});
     };
   }, [code, enabled, selfId]);
 
   useEffect(() => {
     if (!localStream) return;
-    for (const entry of callsRef.current.values()) pushTracks(entry.call, localStream);
-    dialMissingRef.current();
+    for (const pc of pcsRef.current.values()) attachLocal(pc, localStream);
   }, [localStream]);
 
   return remoteStreams;

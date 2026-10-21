@@ -132,6 +132,33 @@ export async function sendMedia(
   return parse(res);
 }
 
+export async function sendRtcSignal(
+  code: string,
+  body: {
+    to: string;
+    description?: { type: string; sdp?: string };
+    candidate?: RTCIceCandidateInit | null;
+  },
+) {
+  await fetch(`/api/rooms/${code}/signals`, {
+    method: "POST",
+    headers: authHeaders(code),
+    body: JSON.stringify(body),
+  });
+}
+
+export async function fetchRtcSignals(code: string) {
+  const token = getRoomToken(code);
+  const qs = new URLSearchParams({ poll: "1" });
+  if (token) qs.set("token", token);
+  const res = await fetch(`/api/rooms/${code}/signals?${qs.toString()}`, {
+    headers: authHeaders(code),
+    cache: "no-store",
+  });
+  const data = (await res.json().catch(() => null)) as { signals?: unknown } | null;
+  return Array.isArray(data?.signals) ? data.signals : [];
+}
+
 export function eventsUrl(code: string) {
   const token = getRoomToken(code);
   const qs = token ? `?token=${encodeURIComponent(token)}` : "";

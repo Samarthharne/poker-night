@@ -61,7 +61,10 @@ export async function GET(
       ...(await readRtcSignals(loaded.room.id, loaded.player.id, req)),
       ...takePersistedSignals(loaded.room, loaded.player.id),
     ]);
-    return NextResponse.json({ signals });
+    return NextResponse.json(
+      { signals },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   }
   const roomId = loaded.room.id;
   const playerId = loaded.player.id;
