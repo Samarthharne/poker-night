@@ -75,8 +75,8 @@ export function usePeerMedia(
     void import("peerjs").then(({ default: PeerCtor }) => {
       if (closed) return;
       const ice = rtcConfiguration();
-      ice.iceServers = [
-        ...ice.iceServers,
+      const iceServers: RTCIceServer[] = [
+        ...(ice.iceServers ?? []),
         {
           urls: ["turn:0.peerjs.com:3478", "turn:0.peerjs.com:3478?transport=tcp"],
           username: "peerjs",
@@ -86,7 +86,7 @@ export function usePeerMedia(
       peer = new PeerCtor(peerName(code, selfId), {
         debug: 0,
         secure: true,
-        config: ice,
+        config: { ...ice, iceServers },
       });
       peer.on("call", (call) => {
         const from = playerIdFromPeer(call.peer, wanted);
