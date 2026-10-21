@@ -324,16 +324,8 @@ export async function saveDurableRooms(local: Room[]) {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const blob = await readBlobSnapshot();
     if (blob.failed) {
-      console.error("[poker-night] skip persist, blob read failed");
-      if (!serverlessRuntime()) {
-        try {
-          writeFileSnapshot(incoming);
-          return true;
-        } catch {
-          queueFileWrite(incoming);
-        }
-      }
-      return false;
+      console.error("[poker-night] blob read failed, retrying persist");
+      continue;
     }
     const remote = blob.rooms ?? (serverlessRuntime() ? [] : readFileSnapshot() ?? []);
     const merged = mergeRooms(remote, incoming);
@@ -365,6 +357,11 @@ export async function saveDurableRooms(local: Room[]) {
       if (!serverlessRuntime()) queueFileWrite(merged);
       return !serverlessRuntime();
     }
+  }
+  try {
+    if (await writeBlobSnapshot(incoming)) return true;
+  } catch (error) {
+    console.error("[poker-night] failed to write Netlify Blobs", error);
   }
   return false;
 }

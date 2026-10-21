@@ -23,6 +23,21 @@ function candidatePayload(candidate: RTCIceCandidate): Candidate {
   };
 }
 
+function waitForIce(pc: RTCPeerConnection) {
+  if (pc.iceGatheringState === "complete") return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const finish = () => {
+      pc.removeEventListener("icegatheringstatechange", onChange);
+      resolve();
+    };
+    const onChange = () => {
+      if (pc.iceGatheringState === "complete") finish();
+    };
+    pc.addEventListener("icegatheringstatechange", onChange);
+    setTimeout(finish, 2500);
+  });
+}
+
 function trackKind(transceiver: RTCRtpTransceiver): "audio" | "video" | null {
   const kind = transceiver.receiver.track?.kind ?? transceiver.sender.track?.kind;
   if (kind === "audio" || kind === "video") return kind;
@@ -138,6 +153,7 @@ export function usePeerMedia(
             attachLocal(pc);
             const offer = await pc.createOffer();
             await pc.setLocalDescription(offer);
+            await waitForIce(pc);
             const local = pc.localDescription;
             if (local && !closed) {
               await post(peerId, { description: { type: local.type, sdp: local.sdp } });
@@ -197,6 +213,7 @@ export function usePeerMedia(
             attachLocal(pc);
             const answer = await pc.createAnswer();
             await pc.setLocalDescription(answer);
+            await waitForIce(pc);
             const local = pc.localDescription;
             if (local) await post(signal.from, { description: { type: local.type, sdp: local.sdp } });
           }
@@ -252,7 +269,7 @@ export function usePeerMedia(
     void drain();
     const retry = setInterval(() => {
       void drain().catch(() => undefined);
-    }, 600);
+    }, 1200);
 
     return () => {
       closed = true;

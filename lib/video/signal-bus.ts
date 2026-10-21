@@ -47,7 +47,7 @@ export function persistSignal(room: Room, signal: RtcSignal) {
   room.rtcSignals = [...(room.rtcSignals ?? []), { ...signal, at: now }]
     .filter((item) => now - (item.at ?? now) < 20_000)
     .slice(-160);
-  saveRoom(room);
+  if (signal.description) saveRoom(room);
 }
 
 export function takePersistedSignals(room: Room, playerId: string) {

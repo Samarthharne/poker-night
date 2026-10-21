@@ -138,13 +138,7 @@ export function saveRoom(room: Room) {
   indexRoom(room);
   ensureTimer(room.roomCode);
   emit(room);
-  const job = saveDurableRooms(listRooms()).catch((error) => {
-    console.error("[poker-night] failed to persist rooms", error);
-  });
-  if (serverlessRuntime()) {
-    void job;
-    return;
-  }
+  const job = persistDurableRooms(listRooms());
   try {
     after(() => job);
   } catch {
@@ -157,8 +151,11 @@ export async function persistRooms() {
 }
 
 export async function saveRoomNow(room: Room) {
-  saveRoom(room);
-  await persistRooms();
+  room.updatedAt = Date.now();
+  indexRoom(room);
+  ensureTimer(room.roomCode);
+  emit(room);
+  await persistDurableRooms(listRooms());
 }
 
 export function subscribe(code: string, listener: Listener) {
